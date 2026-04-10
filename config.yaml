@@ -1,0 +1,177 @@
+# ============================================================
+# call-me-maybe  –  Voice AI Agent Configuration
+# ============================================================
+# All API keys and secrets are read from environment variables
+# (or from a .env file placed in the project root).
+# See .env.example for the full list.
+# ============================================================
+
+# -----------------------------------------------------------
+# Which backend to use: "local" or "remote"
+# -----------------------------------------------------------
+provider: "remote"   # "local"  ← Apple-Silicon / MLX
+                     # "remote" ← any OpenAI-compatible API
+
+# -----------------------------------------------------------
+# Speech-to-Text (STT)
+# -----------------------------------------------------------
+stt:
+  # Model name understood by the active provider
+  # local  → mlx-community/whisper-large-v3-mlx  (or any mlx-whisper model)
+  # remote → whisper-1  (OpenAI / OpenRouter)
+  model: "whisper-1"
+
+  # Language hint; null = auto-detect
+  language: null
+
+  # Silence threshold (0.0–1.0).  Audio below this RMS is treated as silence.
+  silence_threshold: 0.01
+
+  # Seconds of trailing silence that signal end-of-utterance
+  silence_duration: 1.5
+
+  # Max recording length in seconds (safety cap)
+  max_duration: 60
+
+# -----------------------------------------------------------
+# Language Model (LLM)
+# -----------------------------------------------------------
+llm:
+  # Model identifiers
+  # local  → mlx-community/LFM-2.5-Audio-1.5B-4bit  (MLX-quantised)
+  # remote → liquid/lfm-2.5-audio-1.5b  (via OpenRouter)
+  model: "liquid/lfm-2.5-audio-1.5b"
+
+  # System prompt shown to the model at the start of every session
+  system_prompt: >
+    You are a helpful voice assistant called "Maybe".
+    Keep your answers concise and conversational since they will be spoken aloud.
+    When you use a tool, briefly tell the user what you are doing.
+
+  # Sampling parameters
+  temperature: 0.7
+  max_tokens: 512
+
+  # Number of conversation turns to keep in the context window (0 = unlimited)
+  context_window_turns: 20
+
+# -----------------------------------------------------------
+# Text-to-Speech (TTS)
+# -----------------------------------------------------------
+tts:
+  # Model / voice identifier
+  # local  → mlx-community/fish-speech-1.5  (MLX port)
+  # remote → "tts-1" (OpenAI) or fish-audio API
+  model: "tts-1"
+
+  # Voice name / ID
+  # For OpenAI TTS: alloy | echo | fable | onyx | nova | shimmer
+  # For Fish Audio: a voice reference ID (set FISH_AUDIO_VOICE_ID in .env)
+  voice: "nova"
+
+  # Output audio speed (0.25–4.0)
+  speed: 1.0
+
+  # Audio format returned by the TTS service
+  audio_format: "mp3"
+
+# -----------------------------------------------------------
+# Local (Apple Silicon / MLX) backend settings
+# -----------------------------------------------------------
+local:
+  # Minimum recommended RAM in GiB
+  min_memory_gb: 24
+
+  # MLX model cache directory (null = default ~/.cache/huggingface)
+  model_cache_dir: null
+
+  # Quantisation to use when loading MLX models (4 or 8)
+  quantization: 4
+
+# -----------------------------------------------------------
+# Remote API backend settings
+# -----------------------------------------------------------
+remote:
+  # Base URL for the OpenAI-compatible API
+  # Default: OpenRouter.  Change to any OpenAI-compatible endpoint.
+  # OpenAI:      https://api.openai.com/v1
+  # OpenRouter:  https://openrouter.ai/api/v1
+  # LM Studio:   http://localhost:1234/v1
+  base_url: "https://openrouter.ai/api/v1"
+
+  # HTTP request timeout in seconds
+  timeout: 120
+
+  # Extra HTTP headers sent with every request (useful for OpenRouter metadata)
+  extra_headers:
+    HTTP-Referer: "https://github.com/rossja/call-me-maybe"
+    X-Title: "call-me-maybe"
+
+# -----------------------------------------------------------
+# Audio hardware settings
+# -----------------------------------------------------------
+audio:
+  input:
+    # sounddevice device index or name; null = system default
+    device: null
+    # Samples per second for recording
+    sample_rate: 16000
+    # Mono (1) or stereo (2)
+    channels: 1
+    # Duration of each audio chunk read from the mic (seconds)
+    chunk_duration: 0.1
+
+  output:
+    # sounddevice device index or name; null = system default
+    device: null
+    # Playback sample rate
+    sample_rate: 24000
+    channels: 1
+
+# -----------------------------------------------------------
+# Agent settings
+# -----------------------------------------------------------
+agent:
+  # Greet the user when the session starts
+  greeting: "Hello! I'm Maybe, your voice assistant. How can I help?"
+
+  # Wake-word to activate the agent (null = always listening)
+  # wake_word: "maybe"
+  wake_word: null
+
+  # -----------------------------------------------------------
+  # Tool integrations
+  # -----------------------------------------------------------
+  tools:
+
+    # Model Context Protocol servers
+    mcp:
+      enabled: false
+      servers: []
+      # Example:
+      # servers:
+      #   - name: "filesystem"
+      #     command: ["npx", "-y", "@modelcontextprotocol/server-filesystem", "/tmp"]
+      #   - name: "brave-search"
+      #     command: ["npx", "-y", "@modelcontextprotocol/server-brave-search"]
+      #     env:
+      #       BRAVE_API_KEY: "${BRAVE_API_KEY}"
+
+    # Skills: Python modules that expose callable tools
+    skills:
+      enabled: false
+      modules: []
+      # Example:
+      # modules:
+      #   - "call_me_maybe.agent.tools.builtin.web_search"
+      #   - "myproject.skills.calendar"
+
+    # Agent-to-Agent (A2A) endpoints
+    a2a:
+      enabled: false
+      agents: []
+      # Example:
+      # agents:
+      #   - name: "weather-agent"
+      #     url: "http://localhost:8001"
+      #     description: "Returns current weather for a location"
