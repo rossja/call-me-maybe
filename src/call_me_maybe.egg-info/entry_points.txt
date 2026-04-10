@@ -1,2 +1,0 @@
-[console_scripts]
-call-me-maybe = call_me_maybe.main:app
