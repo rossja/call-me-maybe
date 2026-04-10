@@ -215,7 +215,24 @@ class Settings(BaseSettings):
 # Public loader
 # ---------------------------------------------------------------------------
 
-_DEFAULT_CONFIG_PATH = Path(__file__).parents[3] / "config.yaml"
+def _find_default_config() -> Path:
+    """
+    Search upward from the current working directory for ``config.yaml``.
+
+    Falls back to a path relative to this file if not found in the directory
+    tree, so that the package still works when installed as a library.
+    """
+    cwd = Path.cwd()
+    for parent in [cwd, *cwd.parents]:
+        candidate = parent / "config.yaml"
+        if candidate.exists():
+            return candidate
+    # Fallback: project root relative to this file's location
+    # (src/call_me_maybe/config/settings.py → ../../..)
+    return Path(__file__).parent.parent.parent.parent / "config.yaml"
+
+
+_DEFAULT_CONFIG_PATH = _find_default_config()
 
 
 def _load_yaml(path: Path) -> dict[str, Any]:

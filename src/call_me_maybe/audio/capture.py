@@ -41,6 +41,9 @@ class AudioCapture:
 
     def __init__(self, settings: "Settings") -> None:
         self._cfg = settings.audio.input
+        self._stt_silence_threshold = settings.stt.silence_threshold
+        self._stt_silence_duration = settings.stt.silence_duration
+        self._stt_max_duration = settings.stt.max_duration
         if not _SD_AVAILABLE:
             logger.warning(
                 "sounddevice is not available – audio capture will not work. "

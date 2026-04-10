@@ -15,6 +15,7 @@ Orchestrates the full voice pipeline:
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 from typing import TYPE_CHECKING
 
@@ -224,7 +225,6 @@ class VoiceAgent:
 
 
 def json_preview(data: dict, max_len: int = 80) -> str:
-    import json
     s = json.dumps(data)
     if len(s) > max_len:
         return s[:max_len] + "…"

@@ -293,6 +293,7 @@ class LocalMLXBackend(ModelBackend):
         with tempfile.NamedTemporaryFile(suffix=".aiff", delete=False) as tmp:
             tmp_path = tmp.name
 
+        wav_path: str | None = None
         try:
             subprocess.run(
                 ["say", "-o", tmp_path, text],
@@ -300,10 +301,6 @@ class LocalMLXBackend(ModelBackend):
                 capture_output=True,
             )
             # Convert AIFF to PCM WAV
-            with open(tmp_path, "rb") as fh:
-                aiff_data = fh.read()
-
-            # Use afconvert to get WAV
             with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as wav_tmp:
                 wav_path = wav_tmp.name
             subprocess.run(
@@ -321,7 +318,5 @@ class LocalMLXBackend(ModelBackend):
                 return fh.read()
         finally:
             Path(tmp_path).unlink(missing_ok=True)
-            try:
-                Path(wav_path).unlink(missing_ok=True)  # type: ignore[name-defined]
-            except Exception:
-                pass
+            if wav_path is not None:
+                Path(wav_path).unlink(missing_ok=True)
