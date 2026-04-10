@@ -41,3 +41,6 @@ coverage.xml
 
 # macOS
 .DS_Store
+
+# config
+config.yaml
