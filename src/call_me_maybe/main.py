@@ -69,6 +69,9 @@ def run(
     if debug:
         os.environ["LOG_LEVEL"] = "DEBUG"
     settings = _load(config)
+    if debug:
+        import logging as _logging
+        _logging.getLogger().setLevel(_logging.DEBUG)
     try:
         settings.validate_provider()
     except (ValueError, ImportError) as exc:

@@ -25,13 +25,17 @@ stt:
   language: null
 
   # Silence threshold (0.0–1.0).  Audio below this RMS is treated as silence.
-  silence_threshold: 0.01
+  silence_threshold: 0.02
+
+  # Speech threshold (0.0–1.0).  Audio must exceed this RMS to begin recording.
+  # Set higher than silence_threshold to avoid triggering on background noise.
+  speech_threshold: 0.03
 
   # Seconds of trailing silence that signal end-of-utterance
-  silence_duration: 1.5
+  silence_duration: 1.0
 
   # Max recording length in seconds (safety cap)
-  max_duration: 60
+  max_duration: 20
 
 # -----------------------------------------------------------
 # Language Model (LLM)
@@ -192,11 +196,11 @@ audio:
 # -----------------------------------------------------------
 agent:
   # Greet the user when the session starts
-  greeting: "Hello! I'm Maybe, your voice assistant. How can I help?"
+  greeting: "Hey there! I'm Maybe, an AI powered voice agent. How can I help?"
 
   # Wake-word to activate the agent (null = always listening)
   # wake_word: "maybe"
-  wake_word: null
+  wake_word: "hey maybe"
 
   # -----------------------------------------------------------
   # Tool integrations

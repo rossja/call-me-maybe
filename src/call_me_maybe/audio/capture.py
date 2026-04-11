@@ -41,6 +41,7 @@ class AudioCapture:
 
     def __init__(self, settings: "Settings") -> None:
         self._cfg = settings.audio.input
+        self._stt_speech_threshold = settings.stt.speech_threshold
         self._stt_silence_threshold = settings.stt.silence_threshold
         self._stt_silence_duration = settings.stt.silence_duration
         self._stt_max_duration = settings.stt.max_duration
@@ -78,6 +79,7 @@ class AudioCapture:
         sample_rate = cfg.sample_rate
         channels = cfg.channels
         chunk_size = int(sample_rate * cfg.chunk_duration)
+        speech_thresh = self._settings_speech_threshold
         silence_thresh = self._settings_silence_threshold
         silence_chunks_needed = int(
             self._settings_silence_duration / cfg.chunk_duration
@@ -85,9 +87,10 @@ class AudioCapture:
         max_chunks = int(self._settings_max_duration / cfg.chunk_duration)
 
         logger.debug(
-            "Starting audio capture: sr=%d ch=%d silence_thresh=%.4f",
+            "Starting audio capture: sr=%d ch=%d speech_thresh=%.4f silence_thresh=%.4f",
             sample_rate,
             channels,
+            speech_thresh,
             silence_thresh,
         )
 
@@ -109,17 +112,20 @@ class AudioCapture:
                 if i % 5 == 0:  # log every 0.5s at default chunk_duration
                     state = "recording" if recording_started else "waiting"
                     logger.debug(
-                        "RMS=%.5f  thresh=%.5f  state=%s  silent_chunks=%d/%d",
-                        rms, silence_thresh, state, silence_chunks, silence_chunks_needed,
+                        "RMS=%.5f  speech=%.5f  silence=%.5f  state=%s  silent_chunks=%d/%d",
+                        rms, speech_thresh, silence_thresh, state, silence_chunks, silence_chunks_needed,
                     )
 
-                if rms > silence_thresh:
+                if rms > speech_thresh:
                     recording_started = True
                     silence_chunks = 0
                     frames.append(chunk.copy())
                 elif recording_started:
                     frames.append(chunk.copy())
-                    silence_chunks += 1
+                    if rms <= silence_thresh:
+                        silence_chunks += 1
+                    else:
+                        silence_chunks = 0
                     if silence_chunks >= silence_chunks_needed:
                         break
 
@@ -133,8 +139,11 @@ class AudioCapture:
         return wav_bytes
 
     @property
+    def _settings_speech_threshold(self) -> float:
+        return self._stt_speech_threshold
+
+    @property
     def _settings_silence_threshold(self) -> float:
-        # Accessed via the owning agent; stored here for convenience.
         return self._stt_silence_threshold
 
     @property
@@ -153,6 +162,7 @@ class AudioCapture:
     def from_settings(cls, settings: "Settings") -> "AudioCapture":
         obj = cls.__new__(cls)
         obj._cfg = settings.audio.input
+        obj._stt_speech_threshold = settings.stt.speech_threshold
         obj._stt_silence_threshold = settings.stt.silence_threshold
         obj._stt_silence_duration = settings.stt.silence_duration
         obj._stt_max_duration = settings.stt.max_duration

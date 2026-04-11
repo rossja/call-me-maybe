@@ -33,6 +33,7 @@ logger = logging.getLogger(__name__)
 class STTConfig(BaseModel):
     model: str = "mlx-community/whisper-large-v3-turbo"
     language: str | None = None
+    speech_threshold: float = 0.02
     silence_threshold: float = 0.01
     silence_duration: float = 1.5
     max_duration: float = 60.0
