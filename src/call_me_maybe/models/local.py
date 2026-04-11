@@ -4,11 +4,11 @@ Local Apple Silicon / MLX backend.
 Requires:
   - macOS on Apple Silicon (M-series chip)
   - At least 24 GB unified memory (configurable via config.yaml)
-  - ``pip install mlx mlx-lm``
+  - ``uv sync``
 
 The backend:
-  - Loads the LLM with mlx-lm (supports LFM-2.5-Audio-1.5B and any other
-    MLX-compatible model from mlx-community on Hugging Face).
+  - Loads the LLM with mlx-lm (supports MLX-compatible text models from
+    mlx-community on Hugging Face).
   - Uses mlx-whisper for speech-to-text if available, otherwise falls back to
     the ``openai-whisper`` Python package.
   - Generates TTS audio via the Fish Audio API (``FISH_AUDIO_API_KEY`` env var)
@@ -103,7 +103,7 @@ class LocalMLXBackend(ModelBackend):
         except ImportError as exc:
             raise ImportError(
                 "mlx-lm is required for the local backend. "
-                "Install it with: pip install mlx mlx-lm"
+                "Install it with: uv sync"
             ) from exc
 
         model_name = self._settings.llm.model

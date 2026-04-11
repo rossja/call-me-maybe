@@ -31,7 +31,7 @@ logger = logging.getLogger(__name__)
 
 
 class STTConfig(BaseModel):
-    model: str = "whisper-1"
+    model: str = "mlx-community/whisper-large-v3-turbo"
     language: str | None = None
     silence_threshold: float = 0.01
     silence_duration: float = 1.5
@@ -39,7 +39,7 @@ class STTConfig(BaseModel):
 
 
 class LLMConfig(BaseModel):
-    model: str = "liquid/lfm-2.5-audio-1.5b"
+    model: str = "mlx-community/Llama-3.2-3B-Instruct-4bit"
     system_prompt: str = (
         "You are a helpful voice assistant called 'Maybe'. "
         "Keep your answers concise and conversational since they will be "
@@ -151,7 +151,7 @@ class Settings(BaseSettings):
     )
 
     # Backend selection
-    provider: str = "remote"
+    provider: str = "local"
 
     # Sub-configs (populated from YAML, not directly from env)
     stt: STTConfig = Field(default_factory=STTConfig)
@@ -207,7 +207,7 @@ class Settings(BaseSettings):
             except ImportError as exc:
                 raise ImportError(
                     "Provider is set to 'local' but mlx is not installed. "
-                    "Install it with: pip install mlx mlx-lm"
+                    "Install it with: uv sync"
                 ) from exc
 
 

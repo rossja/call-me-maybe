@@ -41,7 +41,7 @@ def full_yaml(tmp_path: Path) -> Path:
         "provider": "remote",
         "stt": {"model": "whisper-1", "silence_threshold": 0.05, "silence_duration": 2.0},
         "llm": {
-            "model": "liquid/lfm-2.5-audio-1.5b",
+            "model": "openai/gpt-4o-mini",
             "temperature": 0.8,
             "max_tokens": 256,
             "context_window_turns": 10,
@@ -79,8 +79,8 @@ def test_load_defaults_when_no_yaml(monkeypatch: pytest.MonkeyPatch, tmp_path: P
     """Settings should load with defaults when no config.yaml exists."""
     monkeypatch.chdir(tmp_path)  # No config.yaml here
     settings = load_settings(tmp_path / "nonexistent.yaml")
-    assert settings.provider == "remote"  # default
-    assert settings.llm.model == "liquid/lfm-2.5-audio-1.5b"  # default
+    assert settings.provider == "local"  # default
+    assert settings.llm.model == "mlx-community/Llama-3.2-3B-Instruct-4bit"  # default
 
 
 def test_load_minimal_yaml(minimal_yaml: Path) -> None:

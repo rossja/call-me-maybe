@@ -11,11 +11,11 @@ back.  Runs locally on Apple Silicon using **MLX** or calls out to any
 | Capability | Details |
 |---|---|
 | **Speech-to-Text** | Whisper (remote API or local mlx-whisper) |
-| **Language Model** | LFM-2.5-Audio-1.5B · any OpenRouter/OpenAI model |
+| **Language Model** | MLX Llama 3.2 local default · any OpenRouter/OpenAI model |
 | **Text-to-Speech** | OpenAI TTS · Fish Audio API · macOS `say` fallback |
 | **Tool use** | MCP servers · Python skill modules · A2A agents |
 | **Local inference** | Apple Silicon (M-series) with MLX, ≥ 24 GB RAM |
-| **Remote inference** | OpenRouter (default) · OpenAI · any OpenAI-compatible API |
+| **Remote inference** | OpenRouter · OpenAI · any OpenAI-compatible API |
 | **Configuration** | Single `config.yaml`; secrets in env vars or `.env` |
 
 ---
@@ -27,15 +27,8 @@ back.  Runs locally on Apple Silicon using **MLX** or calls out to any
 ```bash
 git clone https://github.com/rossja/call-me-maybe.git
 cd call-me-maybe
-
-# Core dependencies
-pip install -e .
-
-# Dev / test dependencies
-pip install -e ".[dev]"
-
-# Local MLX inference (Apple Silicon only)
-pip install -e ".[local]"
+uv sync
+source .venv/bin/activate
 ```
 
 ### 2 – Configure
@@ -103,11 +96,11 @@ See `.env.example` for the full list.
 
 ## Environments
 
-### Remote API (default)
+### Remote API
 
 Any [OpenAI-compatible API](https://platform.openai.com/docs/api-reference) is
 supported.  **OpenRouter** is the default because it provides access to hundreds
-of models (including LFM-2.5-Audio) through a single endpoint.
+of models through a single endpoint.
 
 ```yaml
 # config.yaml
@@ -115,7 +108,7 @@ provider: "remote"
 remote:
   base_url: "https://openrouter.ai/api/v1"   # change to any compatible URL
 llm:
-  model: "liquid/lfm-2.5-audio-1.5b"
+  model: "openai/gpt-4o-mini"
 stt:
   model: "whisper-1"
 tts:
@@ -128,24 +121,23 @@ tts:
 OPENROUTER_API_KEY=your-key-here
 ```
 
-### Local Apple Silicon (MLX)
+### Local Apple Silicon (MLX, default)
 
 Requires a MacBook with an M-series chip and **at least 24 GB** of unified
-memory.
+memory. Run `uv sync` on Apple Silicon to install the MLX dependencies.
 
 ```yaml
 # config.yaml
 provider: "local"
 llm:
-  model: "mlx-community/LFM-2.5-Audio-1.5B-4bit"
+  model: "mlx-community/Llama-3.2-3B-Instruct-4bit"
 stt:
-  model: "whisper-large-v3"   # mlx-whisper will look for the MLX variant
+  model: "mlx-community/whisper-large-v3-turbo"
+tts:
+  model: "tts-1"   # local backend uses macOS 'say' unless FISH_AUDIO_API_KEY is set
 ```
 
 ```bash
-# Install MLX dependencies
-pip install mlx mlx-lm mlx-whisper
-
 # Optionally set Fish Audio key for high-quality TTS
 # (falls back to macOS 'say' command otherwise)
 # FISH_AUDIO_API_KEY=your-key-here
@@ -265,6 +257,8 @@ call-me-maybe/
 ## Running tests
 
 ```bash
+uv sync --extra dev
+source .venv/bin/activate
 pytest
 # or with coverage
 pytest --cov
