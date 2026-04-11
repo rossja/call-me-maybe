@@ -62,12 +62,13 @@ tts:
   # Model / voice identifier
   # local  → macOS "say" fallback (tts.model is ignored by local backend)
   # remote → "tts-1" (OpenAI) or another OpenAI-compatible TTS model
-  model: "tts-1"
+  model: "mlx-community/Voxtral-4B-TTS-2603-mlx-4bit"
 
   # Voice name / ID
   # For OpenAI TTS: alloy | echo | fable | onyx | nova | shimmer
   # For Fish Audio: a voice reference ID (set FISH_AUDIO_VOICE_ID in .env)
-  voice: "nova"
+  # For Voxtral: see "available voices" at https://huggingface.co/mlx-community/Voxtral-4B-TTS-2603-mlx-4bit
+  voice: "neutral_male"
 
   # Output audio speed (0.25–4.0)
   speed: 1.0
