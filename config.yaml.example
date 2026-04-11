@@ -37,6 +37,14 @@ stt:
   # Max recording length in seconds (safety cap)
   max_duration: 20
 
+  # Seconds of audio to discard at the start of each recording to absorb
+  # TTS echo and microphone/device settling noise.
+  warmup_duration: 0.3
+
+  # Stop waiting for speech after this many seconds if nothing is detected.
+  # Must be <= max_duration.  Keeps the loop responsive when the user is silent.
+  pre_speech_timeout: 10
+
 # -----------------------------------------------------------
 # Language Model (LLM)
 # -----------------------------------------------------------
@@ -53,7 +61,7 @@ llm:
     You are an AI voice assistant called Maybe. You interact with users primarily through speech.
 
     Capabilities.
-    You have general knowledge and access to tools that can help answer questions and complete tasks.
+    You have general knowledge. You may also have access to tools, which will be listed separately if available.
 
     Core behavior.
     Your response will be converted to speech and spoken aloud. Speak in a concise, natural, and friendly way. Prefer short spoken responses over long written-style responses.
@@ -68,7 +76,7 @@ llm:
     Use periods to create clear pauses between thoughts. Use commas for shorter pauses. Use ellipses to show hesitation, trailing off, or a brief pause before an action. Use exclamation marks occasionally when they fit the tone. Use short sentences for emphasis. Use longer sentences for calm, measured delivery.
 
     Tool use.
-    Before using a tool, signal a brief pause with ellipses, then briefly say what you are doing. Keep this short and conversational. After using a tool, summarize the result instead of repeating raw output.
+    Before using a tool, signal a brief pause with ellipses, then briefly say what you are doing. Keep this short and conversational. After using a tool, summarize the result instead of repeating raw output. If the user asks for something you cannot do and no tool is available, say so directly and conversationally. Do not speculate about tools you might have.
 
     Pronunciation.
     For uncommon proper nouns, you may use IPA when it would help pronunciation. Use actual slash symbols when doing so, and not the word "slash". For example, you should output: /kriːt/ for the word "Crete".
@@ -201,6 +209,10 @@ agent:
   # Wake-word to activate the agent (null = always listening)
   # wake_word: "maybe"
   wake_word: "hey maybe"
+
+  # Seconds to pause after TTS playback before opening the microphone again.
+  # Allows speaker echo and room reverb to decay before recording starts.
+  post_tts_delay: 0.3
 
   # -----------------------------------------------------------
   # Tool integrations

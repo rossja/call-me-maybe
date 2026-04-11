@@ -37,6 +37,10 @@ class STTConfig(BaseModel):
     silence_threshold: float = 0.01
     silence_duration: float = 1.5
     max_duration: float = 60.0
+    # Seconds to discard at the start of each record() call to absorb echo/settling
+    warmup_duration: float = 0.3
+    # Stop waiting for speech after this many seconds if nothing is detected
+    pre_speech_timeout: float = 30.0
 
 
 class LLMConfig(BaseModel):
@@ -127,6 +131,7 @@ class ToolsConfig(BaseModel):
 class AgentConfig(BaseModel):
     greeting: str = "Hello! I'm Maybe, your voice assistant. How can I help?"
     wake_word: str | None = None
+    post_tts_delay: float = 0.3
     tools: ToolsConfig = Field(default_factory=ToolsConfig)
 
 

@@ -81,7 +81,7 @@ def _check_memory(min_gb: int) -> None:
         logger.debug("Could not determine system RAM.", exc_info=True)
 
 
-_THINKING_RE = re.compile(r"<\|channel>.*?<channel\|>", re.DOTALL)
+_THINKING_RE = re.compile(r"<\|channel>.*?(?:<channel\|>|$)", re.DOTALL)
 
 
 def _strip_thinking(text: str) -> str:

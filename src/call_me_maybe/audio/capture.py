@@ -45,6 +45,8 @@ class AudioCapture:
         self._stt_silence_threshold = settings.stt.silence_threshold
         self._stt_silence_duration = settings.stt.silence_duration
         self._stt_max_duration = settings.stt.max_duration
+        self._stt_warmup_duration = settings.stt.warmup_duration
+        self._stt_pre_speech_timeout = settings.stt.pre_speech_timeout
         if not _SD_AVAILABLE:
             logger.warning(
                 "sounddevice is not available – audio capture will not work. "
@@ -85,6 +87,10 @@ class AudioCapture:
             self._settings_silence_duration / cfg.chunk_duration
         )
         max_chunks = int(self._settings_max_duration / cfg.chunk_duration)
+        warmup_chunks = int(self._settings_warmup_duration / cfg.chunk_duration)
+        pre_speech_timeout_chunks = int(
+            self._settings_pre_speech_timeout / cfg.chunk_duration
+        )
 
         logger.debug(
             "Starting audio capture: sr=%d ch=%d speech_thresh=%.4f silence_thresh=%.4f",
@@ -105,6 +111,10 @@ class AudioCapture:
             device=cfg.device,
             blocksize=chunk_size,
         ) as stream:
+            # Discard the first few chunks to absorb echo / device settling.
+            for _ in range(warmup_chunks):
+                stream.read(chunk_size)
+
             for i in range(max_chunks):
                 chunk, _ = stream.read(chunk_size)
                 rms = _rms(chunk)
@@ -124,10 +134,19 @@ class AudioCapture:
                     frames.append(chunk.copy())
                     if rms <= silence_thresh:
                         silence_chunks += 1
-                    else:
-                        silence_chunks = 0
+                    # Chunks in the gap between silence_thresh and speech_thresh
+                    # do not reset the counter — only a clearly loud chunk (above
+                    # speech_thresh) resets it.  This prevents ambient noise in
+                    # that dead zone from blocking end-of-utterance detection.
                     if silence_chunks >= silence_chunks_needed:
                         break
+                elif i >= pre_speech_timeout_chunks:
+                    # No speech detected within the pre-speech timeout window.
+                    logger.debug(
+                        "Pre-speech timeout reached after %d chunks (%.1fs) with no speech detected",
+                        i, i * cfg.chunk_duration,
+                    )
+                    break
 
         if not frames:
             logger.debug("No audio captured (nothing above silence threshold)")
@@ -154,6 +173,14 @@ class AudioCapture:
     def _settings_max_duration(self) -> float:
         return self._stt_max_duration
 
+    @property
+    def _settings_warmup_duration(self) -> float:
+        return self._stt_warmup_duration
+
+    @property
+    def _settings_pre_speech_timeout(self) -> float:
+        return self._stt_pre_speech_timeout
+
     # ------------------------------------------------------------------
     # Factory-style constructor that carries STT thresholds
     # ------------------------------------------------------------------
@@ -166,6 +193,8 @@ class AudioCapture:
         obj._stt_silence_threshold = settings.stt.silence_threshold
         obj._stt_silence_duration = settings.stt.silence_duration
         obj._stt_max_duration = settings.stt.max_duration
+        obj._stt_warmup_duration = settings.stt.warmup_duration
+        obj._stt_pre_speech_timeout = settings.stt.pre_speech_timeout
         return obj
 
 

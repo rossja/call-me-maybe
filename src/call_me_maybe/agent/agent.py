@@ -129,6 +129,11 @@ class VoiceAgent:
         reply = await self._process_text(user_text)
         console.print(f"[bold magenta]Maybe:[/bold magenta] {escape(reply)}\n")
         await self._speak(reply)
+        # Brief pause after TTS playback so speaker echo decays before
+        # the next record() opens the microphone.
+        delay = self._settings.agent.post_tts_delay
+        if delay > 0:
+            await asyncio.sleep(delay)
 
     async def _process_text(self, user_text: str) -> str:
         """
@@ -139,8 +144,22 @@ class VoiceAgent:
         """
         # Prepend system prompt if history is empty
         if not self._history:
+            tool_defs = self._tools.definitions
+            if tool_defs:
+                tool_names = ", ".join(t.name for t in tool_defs)
+                tool_note = (
+                    f"\n\nTools.\nYou have the following tools available: {tool_names}. "
+                    "Only use tools that are listed here."
+                )
+            else:
+                tool_note = (
+                    "\n\nTools.\nYou do not currently have any tools available. "
+                    "Answer from your own knowledge. "
+                    "If the user asks for something you cannot do or do not know, say so briefly and conversationally. "
+                    "Do not speculate about tools you might have."
+                )
             self._history.append(
-                ChatMessage(role="system", content=self._settings.llm.system_prompt)
+                ChatMessage(role="system", content=self._settings.llm.system_prompt + tool_note)
             )
 
         self._history.append(ChatMessage(role="user", content=user_text))
@@ -233,7 +252,7 @@ def json_preview(data: dict, max_len: int = 80) -> str:
 
 
 _THINKING_RE = re.compile(
-    r"<\|channel>.*?<channel\|>|<think>.*?</think>",
+    r"<\|channel>.*?(?:<channel\|>|$)|<think>.*?(?:</think>|$)",
     re.DOTALL,
 )
 
