@@ -23,6 +23,7 @@ dependencies = [
     "mcp>=1.2",
     "mlx>=0.30.4; platform_system == 'Darwin' and platform_machine == 'arm64'",
     "mlx-lm>=0.31.1; platform_system == 'Darwin' and platform_machine == 'arm64'",
+    "mlx-whisper>=0.4; platform_system == 'Darwin' and platform_machine == 'arm64'",
 ]
 
 [project.optional-dependencies]
@@ -30,6 +31,7 @@ local = [
     "mlx>=0.30.4",
     "mlx-lm>=0.31.1",
     "mlx-audio>=0.4.2",
+    "mlx-whisper>=0.4",
     "tiktoken>=0.9.0",
 ]
 dev = [

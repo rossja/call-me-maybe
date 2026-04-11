@@ -104,6 +104,7 @@ class LocalMLXBackend(ModelBackend):
         self._whisper_model: Any = None
         self._tts_model: Any = None
         self._load_llm()
+        self._preload_stt()
 
     # ------------------------------------------------------------------
     # Initialisation
@@ -130,6 +131,24 @@ class LocalMLXBackend(ModelBackend):
         self._model, self._tokenizer = load(model_name, **kwargs)
         self._ensure_chat_template(model_name)
         logger.info("MLX model loaded: %s", model_name)
+
+    def _preload_stt(self) -> None:
+        """Ensure the STT model weights are cached locally before first use.
+
+        mlx_whisper downloads the model on the first transcribe() call, which
+        creates a noticeable delay mid-conversation.  Calling snapshot_download
+        here triggers the same HF Hub resolution at startup so the weights are
+        already on disk when the first utterance arrives.
+        """
+        self._load_whisper()
+        try:
+            from huggingface_hub import snapshot_download  # type: ignore[import]
+        except ImportError:
+            return
+        stt_model = self._settings.stt.model
+        logger.info("Preloading STT model: %s", stt_model)
+        snapshot_download(repo_id=stt_model)
+        logger.info("STT model ready: %s", stt_model)
 
     def _ensure_chat_template(self, model_name: str) -> None:
         """
@@ -354,7 +373,7 @@ class LocalMLXBackend(ModelBackend):
             if isinstance(whisper_mod, type(mlx_whisper)):
                 result = mlx_whisper.transcribe(
                     tmp_path,
-                    path_or_hf_repo=f"mlx-community/{self._settings.stt.model}-mlx",
+                    path_or_hf_repo=self._settings.stt.model,
                     language=lang,
                 )
             else:

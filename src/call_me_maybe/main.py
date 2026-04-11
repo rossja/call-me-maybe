@@ -19,6 +19,7 @@ Usage examples::
 from __future__ import annotations
 
 import asyncio
+import os
 import sys
 from pathlib import Path
 from typing import Optional
@@ -62,8 +63,11 @@ _config_option = typer.Option(
 @app.command()
 def run(
     config: Optional[Path] = _config_option,
+    debug: bool = typer.Option(False, "--debug", help="Enable debug logging (includes audio RMS values)."),
 ) -> None:
     """Start the voice agent loop (listen → think → speak)."""
+    if debug:
+        os.environ["LOG_LEVEL"] = "DEBUG"
     settings = _load(config)
     try:
         settings.validate_provider()

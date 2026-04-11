@@ -102,9 +102,16 @@ class AudioCapture:
             device=cfg.device,
             blocksize=chunk_size,
         ) as stream:
-            for _ in range(max_chunks):
+            for i in range(max_chunks):
                 chunk, _ = stream.read(chunk_size)
                 rms = _rms(chunk)
+
+                if i % 5 == 0:  # log every 0.5s at default chunk_duration
+                    state = "recording" if recording_started else "waiting"
+                    logger.debug(
+                        "RMS=%.5f  thresh=%.5f  state=%s  silent_chunks=%d/%d",
+                        rms, silence_thresh, state, silence_chunks, silence_chunks_needed,
+                    )
 
                 if rms > silence_thresh:
                     recording_started = True
