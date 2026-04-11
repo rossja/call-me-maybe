@@ -62,12 +62,18 @@ tts:
   # Model / voice identifier
   # local  → macOS "say" fallback (tts.model is ignored by local backend)
   # remote → "tts-1" (OpenAI) or another OpenAI-compatible TTS model
+  # Voxtral (local, requires: pip install mlx-audio):
+  #   "mlx-community/Voxtral-4B-TTS-2603-mlx-4bit"  (~2.5 GB, faster-than-realtime)
+  #   "mlx-community/Voxtral-4B-TTS-2603-mlx-bf16"  (~8 GB, highest quality)
   model: "mlx-community/Voxtral-4B-TTS-2603-mlx-4bit"
 
   # Voice name / ID
   # For OpenAI TTS: alloy | echo | fable | onyx | nova | shimmer
   # For Fish Audio: a voice reference ID (set FISH_AUDIO_VOICE_ID in .env)
-  # For Voxtral: see "available voices" at https://huggingface.co/mlx-community/Voxtral-4B-TTS-2603-mlx-4bit
+  # For Voxtral: casual_male | casual_female | cheerful_female | neutral_male | neutral_female
+  #              fr_male | fr_female | es_male | es_female | de_male | de_female
+  #              (see https://huggingface.co/mlx-community/Voxtral-4B-TTS-2603-mlx-4bit)
+  # For macOS say: any installed voice from `say -v '?'` (e.g. Alex, Daniel, Samantha)
   voice: "neutral_male"
 
   # Output audio speed (0.25–4.0)

@@ -11,8 +11,11 @@ The backend:
     mlx-community on Hugging Face).
   - Uses mlx-whisper for speech-to-text if available, otherwise falls back to
     the ``openai-whisper`` Python package.
-  - Generates TTS audio via the Fish Audio API (``FISH_AUDIO_API_KEY`` env var)
-    or, as a fallback, uses macOS's built-in ``say`` command.
+  - Generates TTS audio via (in priority order):
+      1. Fish Audio API (``FISH_AUDIO_API_KEY`` env var)
+      2. Voxtral via mlx-audio (when ``tts.model`` contains "voxtral" and
+         ``mlx-audio`` is installed); supports 20 preset voices across 9 languages
+      3. macOS built-in ``say`` command (``tts.voice`` is passed as ``-v``)
 """
 
 from __future__ import annotations
@@ -90,6 +93,7 @@ class LocalMLXBackend(ModelBackend):
         self._model: Any = None
         self._tokenizer: Any = None
         self._whisper_model: Any = None
+        self._tts_model: Any = None
         self._load_llm()
 
     # ------------------------------------------------------------------
@@ -252,11 +256,16 @@ class LocalMLXBackend(ModelBackend):
         """
         Convert text to speech.
 
-        Uses Fish Audio API if ``FISH_AUDIO_API_KEY`` is set, otherwise falls
-        back to macOS's built-in ``say`` command (AIFF → WAV).
+        Priority:
+          1. Fish Audio API if ``FISH_AUDIO_API_KEY`` is set.
+          2. Voxtral via mlx-audio if ``tts.model`` contains "voxtral" and
+             ``mlx-audio`` is installed.
+          3. macOS built-in ``say`` command (``tts.voice`` passed as ``-v``).
         """
         if self._settings.fish_audio_api_key:
             return self._fish_audio_tts(text)
+        if "voxtral" in self._settings.tts.model.lower():
+            return self._voxtral_tts(text)
         return self._macos_say_tts(text)
 
     def _fish_audio_tts(self, text: str) -> bytes:
@@ -288,6 +297,51 @@ class LocalMLXBackend(ModelBackend):
             response.raise_for_status()
             return response.content
 
+    def _voxtral_tts(self, text: str) -> bytes:
+        """Use mlx-audio (Voxtral) for TTS, returning WAV bytes."""
+        try:
+            from mlx_audio.tts.utils import load as mlx_audio_load  # type: ignore[import]
+        except ImportError as exc:
+            raise ImportError(
+                "mlx-audio is required for Voxtral TTS. "
+                "Install it with: uv sync --extra local"
+            ) from exc
+
+        import numpy as np
+
+        tts = self._settings.tts
+
+        if self._tts_model is None:
+            logger.info("Loading Voxtral TTS model: %s", tts.model)
+            self._tts_model = mlx_audio_load(tts.model)
+            logger.info("Voxtral TTS model loaded")
+
+        logger.debug("Voxtral TTS: voice=%s", tts.voice)
+        audio_chunks: list[Any] = []
+        sample_rate: int = 24000
+        for result in self._tts_model.generate(text=text, voice=tts.voice):
+            audio_chunks.append(np.array(result.audio))
+            sample_rate = result.sample_rate
+
+        if not audio_chunks:
+            raise RuntimeError("Voxtral TTS returned no audio chunks.")
+
+        audio_np = np.concatenate(audio_chunks).astype(np.float32)
+
+        # Normalise and encode as 16-bit PCM WAV
+        max_val = np.abs(audio_np).max()
+        if max_val > 0:
+            audio_np = audio_np / max_val
+        pcm = (audio_np * 32767).astype(np.int16)
+
+        buf = io.BytesIO()
+        with wave.open(buf, "wb") as wf:
+            wf.setnchannels(1)
+            wf.setsampwidth(2)  # 16-bit
+            wf.setframerate(sample_rate)
+            wf.writeframes(pcm.tobytes())
+        return buf.getvalue()
+
     def _macos_say_tts(self, text: str) -> bytes:
         """Fall back to macOS ``say`` command, returning WAV bytes."""
         tts = self._settings.tts
@@ -297,11 +351,11 @@ class LocalMLXBackend(ModelBackend):
 
         wav_path: str | None = None
         try:
-            subprocess.run(
-                ["say", "-o", tmp_path, text],
-                check=True,
-                capture_output=True,
-            )
+            cmd = ["say", "-o", tmp_path]
+            if tts.voice:
+                cmd += ["-v", tts.voice]
+            cmd.append(text)
+            subprocess.run(cmd, check=True, capture_output=True)
             # Convert AIFF to PCM WAV
             with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as wav_tmp:
                 wav_path = wav_tmp.name

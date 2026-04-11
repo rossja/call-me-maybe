@@ -22,13 +22,15 @@ dependencies = [
     "typer>=0.12",
     "mcp>=1.2",
     "mlx>=0.30.4; platform_system == 'Darwin' and platform_machine == 'arm64'",
-    "mlx-lm>=0.31.2; platform_system == 'Darwin' and platform_machine == 'arm64'",
+    "mlx-lm>=0.31.1; platform_system == 'Darwin' and platform_machine == 'arm64'",
 ]
 
 [project.optional-dependencies]
 local = [
     "mlx>=0.30.4",
-    "mlx-lm>=0.31.2",
+    "mlx-lm>=0.31.1",
+    "mlx-audio>=0.4.2",
+    "tiktoken>=0.9.0",
 ]
 dev = [
     "pytest>=8.2",

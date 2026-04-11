@@ -252,3 +252,317 @@ def test_remote_synthesize(remote_backend: RemoteBackend) -> None:
     assert result == b"fake-audio-bytes"
     call_kwargs = mock_create.call_args.kwargs
     assert call_kwargs["input"] == "Hello world"
+
+
+# ---------------------------------------------------------------------------
+# LocalMLXBackend – TTS helpers
+# ---------------------------------------------------------------------------
+# These tests patch away all Apple Silicon / MLX dependencies so they run
+# on any platform.
+
+
+def _make_local_backend(extra_settings: dict | None = None) -> "LocalMLXBackend":  # noqa: F821
+    """
+    Build a LocalMLXBackend with all heavy initialisation mocked out.
+    """
+    from call_me_maybe.models.local import LocalMLXBackend
+
+    settings_kwargs: dict = {
+        "provider": "local",
+        **(extra_settings or {}),
+    }
+    s = Settings(**settings_kwargs)
+
+    with (
+        patch("call_me_maybe.models.local._check_apple_silicon"),
+        patch("call_me_maybe.models.local._check_memory"),
+        patch.object(LocalMLXBackend, "_load_llm"),
+    ):
+        backend = LocalMLXBackend.__new__(LocalMLXBackend)
+        backend._settings = s
+        backend._model = None
+        backend._tokenizer = None
+        backend._whisper_model = None
+        backend._tts_model = None
+
+    return backend
+
+
+# ---- macOS say ---------------------------------------------------------------
+
+
+def test_macos_say_passes_voice_flag(tmp_path: "pytest.TempPathFactory") -> None:
+    """_macos_say_tts should pass -v <voice> to say when tts.voice is set."""
+    from call_me_maybe.models.local import LocalMLXBackend
+
+    backend = _make_local_backend({"tts": {"model": "tts-1", "voice": "Alex"}})
+
+    # Build minimal RIFF/WAV bytes so open(wav_path, "rb") returns valid data
+    import io
+    import wave as wave_mod
+
+    def fake_say(cmd, **kwargs):
+        # Verify -v flag is present
+        assert "-v" in cmd
+        idx = cmd.index("-v")
+        assert cmd[idx + 1] == "Alex"
+
+    def fake_afconvert(cmd, **kwargs):
+        wav_out = cmd[-1]
+        buf = io.BytesIO()
+        with wave_mod.open(buf, "wb") as wf:
+            wf.setnchannels(1)
+            wf.setsampwidth(2)
+            wf.setframerate(24000)
+            wf.writeframes(b"\x00" * 100)
+        with open(wav_out, "wb") as fh:
+            fh.write(buf.getvalue())
+
+    call_count = [0]
+
+    def fake_run(cmd, **kwargs):
+        if cmd[0] == "say":
+            fake_say(cmd, **kwargs)
+        elif cmd[0] == "afconvert":
+            fake_afconvert(cmd, **kwargs)
+        call_count[0] += 1
+        result = MagicMock()
+        result.returncode = 0
+        return result
+
+    with patch("call_me_maybe.models.local.subprocess.run", side_effect=fake_run):
+        result = backend._macos_say_tts("hello")
+
+    assert call_count[0] == 2
+    assert isinstance(result, bytes)
+    assert len(result) > 0
+
+
+def test_macos_say_omits_voice_flag_when_empty() -> None:
+    """_macos_say_tts should not pass -v when tts.voice is an empty string."""
+    from call_me_maybe.models.local import LocalMLXBackend
+    import io
+    import wave as wave_mod
+
+    backend = _make_local_backend({"tts": {"model": "tts-1", "voice": ""}})
+
+    def fake_say(cmd, **kwargs):
+        assert "-v" not in cmd
+
+    def fake_afconvert(cmd, **kwargs):
+        wav_out = cmd[-1]
+        buf = io.BytesIO()
+        with wave_mod.open(buf, "wb") as wf:
+            wf.setnchannels(1)
+            wf.setsampwidth(2)
+            wf.setframerate(24000)
+            wf.writeframes(b"\x00" * 100)
+        with open(wav_out, "wb") as fh:
+            fh.write(buf.getvalue())
+
+    def fake_run(cmd, **kwargs):
+        if cmd[0] == "say":
+            fake_say(cmd, **kwargs)
+        elif cmd[0] == "afconvert":
+            fake_afconvert(cmd, **kwargs)
+        result = MagicMock()
+        result.returncode = 0
+        return result
+
+    with patch("call_me_maybe.models.local.subprocess.run", side_effect=fake_run):
+        backend._macos_say_tts("hello")
+
+
+# ---- Voxtral -----------------------------------------------------------------
+
+
+def _build_voxtral_mock() -> MagicMock:
+    """Build a mock mlx_audio model whose generate() yields one audio chunk."""
+    import numpy as np
+
+    audio_data = (np.zeros(24000, dtype=np.float32) + 0.1)
+    chunk = MagicMock()
+    chunk.audio = audio_data
+    chunk.sample_rate = 24000
+
+    mock_model = MagicMock()
+    mock_model.generate.return_value = iter([chunk])
+    return mock_model
+
+
+def test_voxtral_tts_wav_output() -> None:
+    """_voxtral_tts produces valid WAV bytes from mock audio chunks."""
+    import wave as wave_mod
+    import io
+    import numpy as np
+    import sys
+
+    backend = _make_local_backend(
+        {"tts": {"model": "mlx-community/Voxtral-4B-TTS-2603-mlx-4bit", "voice": "neutral_male"}}
+    )
+
+    audio_data = np.zeros(4800, dtype=np.float32) + 0.5
+    chunk = MagicMock()
+    chunk.audio = audio_data
+    chunk.sample_rate = 24000
+
+    mock_model = MagicMock()
+    mock_model.generate.return_value = iter([chunk])
+
+    mock_mlx_audio_utils = MagicMock()
+    mock_mlx_audio_utils.load = MagicMock(return_value=mock_model)
+
+    mock_mlx_audio_tts = MagicMock()
+    mock_mlx_audio_tts.utils = mock_mlx_audio_utils
+
+    mock_mlx_audio = MagicMock()
+    mock_mlx_audio.tts = mock_mlx_audio_tts
+
+    saved = {k: sys.modules.get(k) for k in ["mlx_audio", "mlx_audio.tts", "mlx_audio.tts.utils"]}
+    sys.modules["mlx_audio"] = mock_mlx_audio
+    sys.modules["mlx_audio.tts"] = mock_mlx_audio_tts
+    sys.modules["mlx_audio.tts.utils"] = mock_mlx_audio_utils
+
+    try:
+        result = backend._voxtral_tts("hello world")
+    finally:
+        for k, v in saved.items():
+            if v is None:
+                sys.modules.pop(k, None)
+            else:
+                sys.modules[k] = v
+
+    mock_mlx_audio_utils.load.assert_called_once_with(
+        "mlx-community/Voxtral-4B-TTS-2603-mlx-4bit"
+    )
+    mock_model.generate.assert_called_once_with(text="hello world", voice="neutral_male")
+
+    buf = io.BytesIO(result)
+    with wave_mod.open(buf, "rb") as wf:
+        assert wf.getnchannels() == 1
+        assert wf.getsampwidth() == 2
+        assert wf.getframerate() == 24000
+        assert wf.getnframes() == 4800
+
+
+def test_voxtral_tts_model_cached() -> None:
+    """_voxtral_tts should only load the model once across repeated calls."""
+    import numpy as np
+    import sys
+
+    backend = _make_local_backend(
+        {"tts": {"model": "mlx-community/Voxtral-4B-TTS-2603-mlx-4bit", "voice": "neutral_male"}}
+    )
+
+    def make_chunk():
+        chunk = MagicMock()
+        chunk.audio = np.zeros(100, dtype=np.float32)
+        chunk.sample_rate = 24000
+        return chunk
+
+    mock_model = MagicMock()
+    mock_model.generate.side_effect = [iter([make_chunk()]), iter([make_chunk()])]
+
+    mock_utils = MagicMock()
+    mock_utils.load = MagicMock(return_value=mock_model)
+
+    saved = {k: sys.modules.get(k) for k in ["mlx_audio", "mlx_audio.tts", "mlx_audio.tts.utils"]}
+    sys.modules["mlx_audio.tts.utils"] = mock_utils
+
+    try:
+        backend._voxtral_tts("first")
+        backend._voxtral_tts("second")
+    finally:
+        for k, v in saved.items():
+            if v is None:
+                sys.modules.pop(k, None)
+            else:
+                sys.modules[k] = v
+
+    mock_utils.load.assert_called_once()
+
+
+def test_voxtral_tts_import_error_raises() -> None:
+    """_voxtral_tts should raise ImportError with helpful message when mlx-audio is missing."""
+    import sys
+
+    backend = _make_local_backend(
+        {"tts": {"model": "mlx-community/Voxtral-4B-TTS-2603-mlx-4bit", "voice": "neutral_male"}}
+    )
+
+    saved = sys.modules.get("mlx_audio.tts.utils")
+    sys.modules["mlx_audio.tts.utils"] = None  # type: ignore[assignment]
+
+    try:
+        with pytest.raises(ImportError, match="mlx-audio is required"):
+            backend._voxtral_tts("hello")
+    finally:
+        if saved is None:
+            sys.modules.pop("mlx_audio.tts.utils", None)
+        else:
+            sys.modules["mlx_audio.tts.utils"] = saved
+
+
+# ---- synthesize dispatch -----------------------------------------------------
+
+
+def test_synthesize_dispatches_to_fish_when_key_set() -> None:
+    """synthesize() should call _fish_audio_tts when FISH_AUDIO_API_KEY is set."""
+    backend = _make_local_backend()
+    backend._settings = Settings(
+        **{"provider": "local", "FISH_AUDIO_API_KEY": "test-fish-key"}
+    )
+
+    with patch.object(backend, "_fish_audio_tts", return_value=b"fish-audio") as mock_fish:
+        result = backend.synthesize("hello")
+
+    mock_fish.assert_called_once_with("hello")
+    assert result == b"fish-audio"
+
+
+def test_synthesize_dispatches_to_voxtral_when_model_matches() -> None:
+    """synthesize() should call _voxtral_tts when tts.model contains 'voxtral'."""
+    backend = _make_local_backend(
+        {"tts": {"model": "mlx-community/Voxtral-4B-TTS-2603-mlx-4bit", "voice": "neutral_male"}}
+    )
+
+    with patch.object(backend, "_voxtral_tts", return_value=b"voxtral-audio") as mock_voxtral:
+        result = backend.synthesize("hello")
+
+    mock_voxtral.assert_called_once_with("hello")
+    assert result == b"voxtral-audio"
+
+
+def test_synthesize_dispatches_to_say_as_fallback() -> None:
+    """synthesize() should fall back to _macos_say_tts when no Fish key and no Voxtral model."""
+    backend = _make_local_backend({"tts": {"model": "tts-1", "voice": "Alex"}})
+
+    with patch.object(backend, "_macos_say_tts", return_value=b"say-audio") as mock_say:
+        result = backend.synthesize("hello")
+
+    mock_say.assert_called_once_with("hello")
+    assert result == b"say-audio"
+
+
+def test_synthesize_fish_takes_priority_over_voxtral() -> None:
+    """Fish Audio API key should take priority over a Voxtral model name."""
+    backend = _make_local_backend(
+        {"tts": {"model": "mlx-community/Voxtral-4B-TTS-2603-mlx-4bit", "voice": "neutral_male"}}
+    )
+    backend._settings = Settings(
+        **{
+            "provider": "local",
+            "FISH_AUDIO_API_KEY": "test-fish-key",
+            "tts": {"model": "mlx-community/Voxtral-4B-TTS-2603-mlx-4bit", "voice": "neutral_male"},
+        }
+    )
+
+    with (
+        patch.object(backend, "_fish_audio_tts", return_value=b"fish") as mock_fish,
+        patch.object(backend, "_voxtral_tts", return_value=b"voxtral") as mock_voxtral,
+    ):
+        result = backend.synthesize("hello")
+
+    mock_fish.assert_called_once_with("hello")
+    mock_voxtral.assert_not_called()
+    assert result == b"fish"
