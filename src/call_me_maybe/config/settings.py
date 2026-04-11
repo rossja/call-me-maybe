@@ -97,8 +97,19 @@ class AudioConfig(BaseModel):
 
 class MCPServerConfig(BaseModel):
     name: str
-    command: list[str]
+    command: list[str] | None = None
+    url: str | None = None
     env: dict[str, str] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def _check_transport(self) -> "MCPServerConfig":
+        has_command = bool(self.command)
+        has_url = bool(self.url)
+        if has_command == has_url:
+            raise ValueError(
+                f"MCP server '{self.name}' must have exactly one of 'command' or 'url', not both or neither."
+            )
+        return self
 
 
 class MCPToolsConfig(BaseModel):
@@ -173,7 +184,7 @@ class Settings(BaseSettings):
     api_key: str | None = Field(default=None, alias="API_KEY")
     fish_audio_api_key: str | None = Field(default=None, alias="FISH_AUDIO_API_KEY")
     fish_audio_voice_id: str | None = Field(default=None, alias="FISH_AUDIO_VOICE_ID")
-    log_level: str = Field(default="info", alias="LOG_LEVEL")
+    log_level: str = Field(default="warning", alias="LOG_LEVEL")
 
     @model_validator(mode="after")
     def _resolve_api_key(self) -> "Settings":

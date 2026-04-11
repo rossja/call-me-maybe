@@ -9,6 +9,7 @@ from __future__ import annotations
 import importlib
 import json
 import logging
+import os
 from typing import TYPE_CHECKING, Any, Callable
 
 import httpx
@@ -28,7 +29,7 @@ class ToolRegistry:
 
     Integrates:
 
-    * **MCP** – Model Context Protocol servers (spawned as sub-processes).
+    * **MCP** – Model Context Protocol servers (stdio subprocesses or remote HTTP).
     * **Skills** – Python modules that export a ``TOOLS`` list of callables.
     * **A2A** – Remote agents reachable over HTTP (Google A2A protocol).
     """
@@ -37,7 +38,7 @@ class ToolRegistry:
         self._settings = settings
         self._definitions: list[ToolDefinition] = []
         self._executors: dict[str, Callable[..., Any]] = {}
-        self._mcp_sessions: list[Any] = []
+        self._mcp_contexts: list[Any] = []
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -66,12 +67,12 @@ class ToolRegistry:
 
     async def close(self) -> None:
         """Shut down any background MCP server processes."""
-        for session in self._mcp_sessions:
+        for ctx in reversed(self._mcp_contexts):
             try:
-                await session.__aexit__(None, None, None)
-            except Exception:
-                logger.debug("Error closing MCP session", exc_info=True)
-        self._mcp_sessions.clear()
+                await ctx.__aexit__(None, None, None)
+            except BaseException:
+                logger.debug("Error closing MCP context", exc_info=True)
+        self._mcp_contexts.clear()
 
     # ------------------------------------------------------------------
     # Public API
@@ -127,8 +128,7 @@ class ToolRegistry:
     async def _load_mcp_tools(self) -> None:
         """Connect to configured MCP servers and register their tools."""
         try:
-            from mcp import ClientSession, StdioServerParameters  # type: ignore[import]
-            from mcp.client.stdio import stdio_client  # type: ignore[import]
+            from mcp import ClientSession  # type: ignore[import]
         except ImportError:
             logger.warning(
                 "mcp package not installed; MCP tools will not be available. "
@@ -137,36 +137,65 @@ class ToolRegistry:
             return
 
         for server_cfg in self._settings.agent.tools.mcp.servers:
+            contexts_before = len(self._mcp_contexts)
             try:
-                await self._connect_mcp_server(server_cfg, ClientSession, StdioServerParameters, stdio_client)
+                if server_cfg.url:
+                    await self._connect_mcp_remote_server(server_cfg, ClientSession)
+                else:
+                    await self._connect_mcp_stdio_server(server_cfg, ClientSession)
             except Exception as exc:
                 logger.error(
                     "Failed to connect to MCP server '%s': %s",
                     server_cfg.name,
                     exc,
-                    exc_info=True,
                 )
+                # Clean up any contexts that were partially entered for this server
+                for ctx in reversed(self._mcp_contexts[contexts_before:]):
+                    try:
+                        await ctx.__aexit__(None, None, None)
+                    except Exception:
+                        logger.debug("Error cleaning up MCP context after failure", exc_info=True)
+                del self._mcp_contexts[contexts_before:]
 
-    async def _connect_mcp_server(
-        self,
-        server_cfg: Any,
-        ClientSession: Any,
-        StdioServerParameters: Any,
-        stdio_client: Any,
-    ) -> None:
-        """Connect to a single MCP server and register its tools."""
+    async def _connect_mcp_stdio_server(self, server_cfg: Any, ClientSession: Any) -> None:
+        """Connect to a stdio-based MCP server and register its tools."""
+        import subprocess
+        from mcp import StdioServerParameters  # type: ignore[import]
+        from mcp.client.stdio import stdio_client  # type: ignore[import]
+
         params = StdioServerParameters(
             command=server_cfg.command[0],
             args=server_cfg.command[1:],
             env=server_cfg.env or None,
         )
-        ctx = stdio_client(params)
+        # Suppress subprocess stderr unless debug logging is active
+        debug = os.environ.get("LOG_LEVEL", "warning").upper() == "DEBUG"
+        errlog = None if debug else open(os.devnull, "w")
+        ctx = stdio_client(params, errlog=errlog)
         read, write = await ctx.__aenter__()
+        self._mcp_contexts.append(ctx)
         session = ClientSession(read, write)
         await session.__aenter__()
+        self._mcp_contexts.append(session)
         await session.initialize()
-        self._mcp_sessions.append(session)
+        await self._register_mcp_tools(server_cfg, session)
 
+    async def _connect_mcp_remote_server(self, server_cfg: Any, ClientSession: Any) -> None:
+        """Connect to a remote HTTP MCP server and register its tools."""
+        from mcp.client.streamable_http import streamablehttp_client  # type: ignore[import]
+
+        ctx = streamablehttp_client(server_cfg.url)
+        streams = await ctx.__aenter__()
+        self._mcp_contexts.append(ctx)
+        read, write = streams[0], streams[1]
+        session = ClientSession(read, write)
+        await session.__aenter__()
+        self._mcp_contexts.append(session)
+        await session.initialize()
+        await self._register_mcp_tools(server_cfg, session)
+
+    async def _register_mcp_tools(self, server_cfg: Any, session: Any) -> None:
+        """Discover tools from an initialized MCP session and register them."""
         tools_response = await session.list_tools()
         for tool in tools_response.tools:
             definition = ToolDefinition(

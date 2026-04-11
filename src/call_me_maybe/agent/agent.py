@@ -98,7 +98,10 @@ class VoiceAgent:
         try:
             return await self._process_text(user_text)
         finally:
-            await self._tools.close()
+            try:
+                await self._tools.close()
+            except BaseException:
+                logger.debug("Error during tool cleanup", exc_info=True)
 
     # ------------------------------------------------------------------
     # Private helpers
@@ -255,7 +258,8 @@ def json_preview(data: dict, max_len: int = 80) -> str:
 
 
 _THINKING_RE = re.compile(
-    r"<\|channel>.*?(?:<channel\|>|$)|<think>.*?(?:</think>|$)",
+    r"<\|channel>.*?(?:<channel\|>|$)|<channel\|>|<\|channel>"
+    r"|<think>.*?(?:</think>|$)|</think>",
     re.DOTALL,
 )
 

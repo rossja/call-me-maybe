@@ -36,6 +36,10 @@ from call_me_maybe.agent.agent import VoiceAgent
 install_rich_traceback(show_locals=False)
 console = Console()
 
+# Suppress HuggingFace Hub progress bars unless debug mode is active.
+# Individual commands set this to "1" by default and clear it when --debug is passed.
+os.environ.setdefault("HF_HUB_DISABLE_PROGRESS_BARS", "1")
+
 app = typer.Typer(
     name="call-me-maybe",
     help="A voice-based AI agent that listens, thinks, and speaks.",
@@ -68,6 +72,7 @@ def run(
     """Start the voice agent loop (listen → think → speak)."""
     if debug:
         os.environ["LOG_LEVEL"] = "DEBUG"
+        os.environ["HF_HUB_DISABLE_PROGRESS_BARS"] = "0"
     settings = _load(config)
     if debug:
         import logging as _logging
@@ -88,9 +93,16 @@ def chat(
     message: str = typer.Argument(..., help="Text message to send to the agent."),
     config: Optional[Path] = _config_option,
     speak: bool = typer.Option(False, "--speak", "-s", help="Speak the reply via TTS."),
+    debug: bool = typer.Option(False, "--debug", help="Enable verbose logging."),
 ) -> None:
     """Send a single text message to the agent and print the response."""
+    if debug:
+        os.environ["LOG_LEVEL"] = "DEBUG"
+        os.environ["HF_HUB_DISABLE_PROGRESS_BARS"] = "0"
     settings = _load(config)
+    if debug:
+        import logging as _logging
+        _logging.getLogger().setLevel(_logging.DEBUG)
     try:
         settings.validate_provider()
     except (ValueError, ImportError) as exc:

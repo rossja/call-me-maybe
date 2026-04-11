@@ -13,7 +13,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from call_me_maybe.config.settings import Settings, load_settings, _expand_env_vars
+from call_me_maybe.config.settings import Settings, load_settings, _expand_env_vars, MCPServerConfig
 
 
 # ---------------------------------------------------------------------------
@@ -261,3 +261,38 @@ def test_settings_local_min_memory() -> None:
 def test_settings_log_level_default() -> None:
     s = Settings()
     assert s.log_level.lower() == "info"
+
+
+# ---------------------------------------------------------------------------
+# Tests – MCPServerConfig transport validation
+# ---------------------------------------------------------------------------
+
+
+def test_mcp_server_config_command_only() -> None:
+    """A server configured with only a command should be valid."""
+    cfg = MCPServerConfig(name="fs", command=["npx", "-y", "some-server"])
+    assert cfg.command == ["npx", "-y", "some-server"]
+    assert cfg.url is None
+
+
+def test_mcp_server_config_url_only() -> None:
+    """A server configured with only a URL should be valid."""
+    cfg = MCPServerConfig(name="av", url="https://mcp.alphavantage.co/mcp?apikey=1")
+    assert cfg.url == "https://mcp.alphavantage.co/mcp?apikey=1"
+    assert cfg.command is None
+
+
+def test_mcp_server_config_both_raises() -> None:
+    """Providing both command and url should raise a validation error."""
+    with pytest.raises(Exception, match="exactly one"):
+        MCPServerConfig(
+            name="bad",
+            command=["npx", "server"],
+            url="https://example.com/mcp",
+        )
+
+
+def test_mcp_server_config_neither_raises() -> None:
+    """Providing neither command nor url should raise a validation error."""
+    with pytest.raises(Exception, match="exactly one"):
+        MCPServerConfig(name="bad")

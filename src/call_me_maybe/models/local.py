@@ -81,12 +81,312 @@ def _check_memory(min_gb: int) -> None:
         logger.debug("Could not determine system RAM.", exc_info=True)
 
 
-_THINKING_RE = re.compile(r"<\|channel>.*?(?:<channel\|>|$)", re.DOTALL)
+_THINKING_RE = re.compile(
+    r"<\|channel>.*?(?:<channel\|>|$)|<channel\|>|<\|channel>", re.DOTALL
+)
 
 
 def _strip_thinking(text: str) -> str:
     """Remove Gemma 4 channel/thought blocks from generated text."""
     return _THINKING_RE.sub("", text).strip()
+
+
+_TOOL_CALL_PREFIX_RE = re.compile(r'<\|tool_call>call:([\w\-]+)\{')
+
+
+def _extract_tool_calls(text: str) -> tuple[list[ToolCall], str]:
+    """Parse tool calls from model output (native Gemma format or JSON).
+
+    Returns ``(tool_calls, remaining_text)``.
+    """
+    stripped = text.strip()
+
+    # 1. Gemma native format: <|tool_call>call:name{args}<tool_call|>
+    calls: list[ToolCall] = []
+    remove_spans: list[tuple[int, int]] = []
+    for m in _TOOL_CALL_PREFIX_RE.finditer(stripped):
+        name = m.group(1)
+        brace_start = m.end() - 1
+        brace_end = _find_matching_brace(stripped, brace_start)
+        if brace_end is None:
+            continue
+        raw_args = stripped[brace_start + 1 : brace_end]
+        arguments = _parse_gemma_args(raw_args)
+        calls.append(ToolCall(id=f"local-{len(calls)}", name=name, arguments=arguments))
+        # Mark the full span from <|tool_call> through }<tool_call|> for removal
+        span_end = brace_end + 1
+        suffix = "<tool_call|>"
+        if stripped[span_end:span_end + len(suffix)] == suffix:
+            span_end += len(suffix)
+        remove_spans.append((m.start(), span_end))
+    if calls:
+        remaining = stripped
+        for start, end in reversed(remove_spans):
+            remaining = remaining[:start] + remaining[end:]
+        remaining = re.sub(r'<\|tool_response>.*', '', remaining, flags=re.DOTALL)
+        return (calls, remaining.strip())
+
+    # 2. JSON format ({"name": ..., "arguments": ...} or {"tool": ..., "arguments": ...})
+    tc = _try_parse_tool_json(stripped)
+    if tc:
+        return ([tc], "")
+
+    # 3. JSON embedded in surrounding text
+    start = stripped.find("{")
+    while start != -1:
+        end = _find_matching_brace(stripped, start)
+        if end is not None:
+            candidate = stripped[start : end + 1]
+            tc = _try_parse_tool_json(candidate)
+            if tc:
+                before = stripped[:start].strip()
+                after = stripped[end + 1 :].strip()
+                remaining = f"{before} {after}".strip() if before or after else ""
+                return ([tc], remaining)
+        start = stripped.find("{", start + 1)
+
+    return ([], text)
+
+
+def _parse_gemma_args(raw: str) -> dict[str, Any]:
+    """Recursively parse Gemma-style tool arguments into a Python dict.
+
+    Handles quoted strings (``<|"|>val<|"|>``), nested objects (``{…}``),
+    arrays (``[…]``), and bare scalars.
+    """
+    result: dict[str, Any] = {}
+    i = 0
+    n = len(raw)
+
+    while i < n:
+        # Skip whitespace / commas
+        while i < n and raw[i] in " ,\n\r\t":
+            i += 1
+        if i >= n:
+            break
+
+        # Parse key
+        key_start = i
+        while i < n and raw[i] not in ":,}":
+            i += 1
+        key = raw[key_start:i].strip()
+        if not key or i >= n or raw[i] != ":":
+            break
+        i += 1  # skip ':'
+
+        # Parse value
+        val, i = _parse_gemma_value(raw, i, n)
+        result[key] = val
+
+    return result
+
+
+def _parse_gemma_value(raw: str, i: int, n: int) -> tuple[Any, int]:
+    """Parse a single Gemma-encoded value starting at position *i*."""
+    # Skip whitespace
+    while i < n and raw[i] in " \n\r\t":
+        i += 1
+    if i >= n:
+        return ("", i)
+
+    _QUOTE = '<|"|>'
+    _QLEN = len(_QUOTE)
+
+    # Quoted string
+    if raw[i:i + _QLEN] == _QUOTE:
+        i += _QLEN
+        end = raw.find(_QUOTE, i)
+        if end == -1:
+            return (raw[i:], n)
+        val = raw[i:end]
+        return (val, end + _QLEN)
+
+    # Nested object
+    if raw[i] == "{":
+        close = _find_matching_brace(raw, i)
+        if close is None:
+            close = n - 1
+        inner = raw[i + 1:close]
+        return (_parse_gemma_args(inner), close + 1)
+
+    # Array
+    if raw[i] == "[":
+        close = _find_matching_bracket(raw, i, n)
+        inner = raw[i + 1:close]
+        return (_parse_gemma_array(inner), close + 1)
+
+    # Bare scalar (number / bool / unquoted string)
+    val_start = i
+    while i < n and raw[i] not in ",}]\n":
+        i += 1
+    return (_cast_scalar(raw[val_start:i].strip()), i)
+
+
+def _parse_gemma_array(raw: str) -> list[Any]:
+    """Parse a Gemma-encoded array body (contents between ``[`` and ``]``)."""
+    items: list[Any] = []
+    i, n = 0, len(raw)
+    while i < n:
+        while i < n and raw[i] in " ,\n\r\t":
+            i += 1
+        if i >= n:
+            break
+        val, i = _parse_gemma_value(raw, i, n)
+        items.append(val)
+    return items
+
+
+def _find_matching_bracket(raw: str, start: int, n: int) -> int:
+    depth = 0
+    for i in range(start, n):
+        if raw[i] == "[":
+            depth += 1
+        elif raw[i] == "]":
+            depth -= 1
+            if depth == 0:
+                return i
+    return n - 1
+
+
+def _cast_scalar(val: str) -> Any:
+    """Best-effort cast of a bare scalar value."""
+    if not val:
+        return val
+    try:
+        return int(val)
+    except ValueError:
+        pass
+    try:
+        return float(val)
+    except ValueError:
+        pass
+    low = val.lower()
+    if low == "true":
+        return True
+    if low == "false":
+        return False
+    return val
+
+
+def _try_parse_tool_json(s: str) -> ToolCall | None:
+    try:
+        data = json.loads(s)
+    except (json.JSONDecodeError, ValueError):
+        return None
+    if isinstance(data, dict):
+        if "tool" in data:
+            return ToolCall(
+                id="local-0",
+                name=data["tool"],
+                arguments=data.get("arguments", {}),
+            )
+        if "name" in data and "arguments" in data:
+            return ToolCall(
+                id="local-0",
+                name=data["name"],
+                arguments=data.get("arguments", {}),
+            )
+    if isinstance(data, list):
+        calls = []
+        for i, item in enumerate(data):
+            if isinstance(item, dict) and "name" in item:
+                calls.append(ToolCall(
+                    id=f"local-{i}",
+                    name=item["name"],
+                    arguments=item.get("arguments", {}),
+                ))
+        if calls:
+            return calls[0]  # return first; multi-call handled by caller
+    return None
+
+
+def _find_matching_brace(text: str, start: int) -> int | None:
+    """Return the index of the closing ``}`` that matches the ``{`` at *start*."""
+    depth = 0
+    in_string = False
+    escape = False
+    for i in range(start, len(text)):
+        ch = text[i]
+        if escape:
+            escape = False
+            continue
+        if ch == "\\":
+            escape = True
+            continue
+        if ch == '"':
+            in_string = not in_string
+            continue
+        if in_string:
+            continue
+        if ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                return i
+    return None
+
+
+def _convert_history_for_template(messages: list[ChatMessage]) -> list[dict[str, Any]]:
+    """Convert ChatMessage history to a format compatible with Gemma's chat template.
+
+    Gemma expects tool calls and their responses combined in a single assistant
+    message with ``tool_calls`` and ``tool_responses`` keys — not as separate
+    ``role="tool"`` messages.
+    """
+    result: list[dict[str, Any]] = []
+    i = 0
+    while i < len(messages):
+        msg = messages[i]
+
+        if msg.role == "assistant":
+            tool_msgs: list[ChatMessage] = []
+            j = i + 1
+            while j < len(messages) and messages[j].role == "tool":
+                tool_msgs.append(messages[j])
+                j += 1
+
+            if tool_msgs:
+                tool_calls_list = []
+                tool_responses_list = []
+                for t in tool_msgs:
+                    tool_calls_list.append({
+                        "function": {
+                            "name": t.name or "unknown",
+                            "arguments": {},
+                        }
+                    })
+                    try:
+                        resp_data = json.loads(t.content)
+                    except (json.JSONDecodeError, ValueError):
+                        resp_data = t.content
+                    tool_responses_list.append({
+                        "name": t.name or "unknown",
+                        "response": resp_data,
+                    })
+                result.append({
+                    "role": "assistant",
+                    "tool_calls": tool_calls_list,
+                    "tool_responses": tool_responses_list,
+                })
+                i = j
+            else:
+                result.append({"role": msg.role, "content": msg.content})
+                i += 1
+
+        elif msg.role == "tool":
+            # Orphaned tool message — shouldn't happen but handle gracefully
+            result.append({
+                "role": "user",
+                "content": f"Tool result ({msg.name}): {msg.content}",
+            })
+            i += 1
+
+        else:
+            result.append({"role": msg.role, "content": msg.content})
+            i += 1
+
+    return result
 
 
 class LocalMLXBackend(ModelBackend):
@@ -402,29 +702,14 @@ class LocalMLXBackend(ModelBackend):
 
         llm = self._settings.llm
 
-        # Build prompt using the tokenizer's chat template
-        raw_messages = [{"role": m.role, "content": m.content} for m in messages]
-        if tools:
-            # Append tool descriptions to the system prompt
-            tool_descriptions = "\n".join(
-                f"- {t.name}: {t.description}" for t in tools
-            )
-            raw_messages.insert(
-                0,
-                {
-                    "role": "system",
-                    "content": (
-                        llm.system_prompt
-                        + f"\n\nAvailable tools:\n{tool_descriptions}\n\n"
-                        "To call a tool, respond with JSON in the format:\n"
-                        '{"tool": "<name>", "arguments": {<args>}}'
-                    ),
-                },
-            )
+        raw_messages = _convert_history_for_template(messages)
 
         template_kwargs: dict = {"enable_thinking": True}
         if llm.thinking_budget is not None:
             template_kwargs["thinking_budget"] = llm.thinking_budget
+
+        if tools:
+            template_kwargs["tools"] = [t.to_openai_schema() for t in tools]
 
         prompt = self._tokenizer.apply_chat_template(
             raw_messages,
@@ -435,8 +720,6 @@ class LocalMLXBackend(ModelBackend):
 
         from mlx_lm.sample_utils import make_sampler  # type: ignore[import]
 
-        # thinking_budget tokens are consumed by the thought block and must not
-        # count against the tokens available for the actual response.
         effective_max_tokens = llm.max_tokens
         if llm.thinking_budget is not None:
             effective_max_tokens += llm.thinking_budget
@@ -452,22 +735,9 @@ class LocalMLXBackend(ModelBackend):
         )
         response_text = _strip_thinking(response_text)
 
-        # Check if the model returned a tool call in JSON
         tool_calls: list[ToolCall] = []
         if tools:
-            try:
-                data = json.loads(response_text.strip())
-                if isinstance(data, dict) and "tool" in data:
-                    tool_calls.append(
-                        ToolCall(
-                            id="local-0",
-                            name=data["tool"],
-                            arguments=data.get("arguments", {}),
-                        )
-                    )
-                    response_text = ""
-            except (json.JSONDecodeError, ValueError):
-                pass
+            tool_calls, response_text = _extract_tool_calls(response_text)
 
         return ModelResponse(text=response_text, tool_calls=tool_calls)
 

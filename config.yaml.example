@@ -223,7 +223,11 @@ agent:
     mcp:
       enabled: false
       servers: []
-      # Example:
+      # Example remote HTTP server (e.g. Alpha Vantage stock data):
+      # servers:
+      #   - name: "alphavantage"
+      #     url: "https://mcp.alphavantage.co/mcp?apikey=${ALPHAVANTAGE_API_KEY}"
+      # Example stdio server (local subprocess):
       # servers:
       #   - name: "filesystem"
       #     command: ["npx", "-y", "@modelcontextprotocol/server-filesystem", "/tmp"]
