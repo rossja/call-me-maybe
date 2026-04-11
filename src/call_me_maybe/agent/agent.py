@@ -197,6 +197,9 @@ class VoiceAgent:
 
             # Final text reply
             assistant_text = _strip_thinking(response.text.strip())
+            if not assistant_text:
+                logger.warning("Empty response after stripping thinking block; using fallback")
+                assistant_text = "Sorry, I lost my train of thought. Can you say that again?"
             self._history.append(
                 ChatMessage(role="assistant", content=assistant_text)
             )

@@ -435,12 +435,18 @@ class LocalMLXBackend(ModelBackend):
 
         from mlx_lm.sample_utils import make_sampler  # type: ignore[import]
 
+        # thinking_budget tokens are consumed by the thought block and must not
+        # count against the tokens available for the actual response.
+        effective_max_tokens = llm.max_tokens
+        if llm.thinking_budget is not None:
+            effective_max_tokens += llm.thinking_budget
+
         logger.debug("LLM (local) generating response, model=%s", llm.model)
         response_text = generate(
             self._model,
             self._tokenizer,
             prompt=prompt,
-            max_tokens=llm.max_tokens,
+            max_tokens=effective_max_tokens,
             sampler=make_sampler(temp=llm.temperature),
             verbose=False,
         )
