@@ -17,6 +17,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 from typing import TYPE_CHECKING
 
 from rich.console import Console
@@ -176,7 +177,7 @@ class VoiceAgent:
                 continue
 
             # Final text reply
-            assistant_text = response.text.strip()
+            assistant_text = _strip_thinking(response.text.strip())
             self._history.append(
                 ChatMessage(role="assistant", content=assistant_text)
             )
@@ -229,3 +230,14 @@ def json_preview(data: dict, max_len: int = 80) -> str:
     if len(s) > max_len:
         return s[:max_len] + "…"
     return s
+
+
+_THINKING_RE = re.compile(
+    r"<\|channel>.*?<channel\|>|<think>.*?</think>",
+    re.DOTALL,
+)
+
+
+def _strip_thinking(text: str) -> str:
+    """Remove reasoning/thought blocks from model output (model-agnostic fallback)."""
+    return _THINKING_RE.sub("", text).strip()

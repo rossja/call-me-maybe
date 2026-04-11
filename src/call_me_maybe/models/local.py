@@ -81,6 +81,14 @@ def _check_memory(min_gb: int) -> None:
         logger.debug("Could not determine system RAM.", exc_info=True)
 
 
+_THINKING_RE = re.compile(r"<\|channel>.*?<channel\|>", re.DOTALL)
+
+
+def _strip_thinking(text: str) -> str:
+    """Remove Gemma 4 channel/thought blocks from generated text."""
+    return _THINKING_RE.sub("", text).strip()
+
+
 class LocalMLXBackend(ModelBackend):
     """
     Backend that uses MLX for local inference on Apple Silicon.
@@ -399,6 +407,7 @@ class LocalMLXBackend(ModelBackend):
             raw_messages,
             tokenize=False,
             add_generation_prompt=True,
+            enable_thinking=False,
         )
 
         from mlx_lm.sample_utils import make_sampler  # type: ignore[import]
@@ -412,6 +421,7 @@ class LocalMLXBackend(ModelBackend):
             sampler=make_sampler(temp=llm.temperature),
             verbose=False,
         )
+        response_text = _strip_thinking(response_text)
 
         # Check if the model returned a tool call in JSON
         tool_calls: list[ToolCall] = []
