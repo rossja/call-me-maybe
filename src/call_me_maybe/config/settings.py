@@ -39,7 +39,7 @@ class STTConfig(BaseModel):
 
 
 class LLMConfig(BaseModel):
-    model: str = "mlx-community/LFM2.5-Audio-1.5B-bf16"
+    model: str = "mlx-community/Llama-3.2-3B-Instruct-4bit"
     system_prompt: str = (
         "You are a helpful voice assistant called 'Maybe'. "
         "Keep your answers concise and conversational since they will be "
@@ -52,7 +52,7 @@ class LLMConfig(BaseModel):
 
 
 class TTSConfig(BaseModel):
-    model: str = "mlx-community/fishaudio-s2-pro-8bit"
+    model: str = "tts-1"
     voice: str = "nova"
     speed: float = 1.0
     audio_format: str = "mp3"

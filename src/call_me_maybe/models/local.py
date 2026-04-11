@@ -7,8 +7,8 @@ Requires:
   - ``uv sync``
 
 The backend:
-  - Loads the LLM with mlx-lm (supports LFM-2.5-Audio-1.5B and any other
-    MLX-compatible model from mlx-community on Hugging Face).
+  - Loads the LLM with mlx-lm (supports MLX-compatible text models from
+    mlx-community on Hugging Face).
   - Uses mlx-whisper for speech-to-text if available, otherwise falls back to
     the ``openai-whisper`` Python package.
   - Generates TTS audio via the Fish Audio API (``FISH_AUDIO_API_KEY`` env var)
