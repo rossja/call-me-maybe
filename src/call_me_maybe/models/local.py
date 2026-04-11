@@ -213,13 +213,15 @@ class LocalMLXBackend(ModelBackend):
             add_generation_prompt=True,
         )
 
+        from mlx_lm.sample_utils import make_sampler  # type: ignore[import]
+
         logger.debug("LLM (local) generating response, model=%s", llm.model)
         response_text = generate(
             self._model,
             self._tokenizer,
             prompt=prompt,
             max_tokens=llm.max_tokens,
-            temp=llm.temperature,
+            sampler=make_sampler(temp=llm.temperature),
             verbose=False,
         )
 
