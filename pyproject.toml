@@ -42,6 +42,15 @@ dev = [
 [project.scripts]
 call-me-maybe = "call_me_maybe.main:app"
 
+[tool.uv]
+# mlx-audio 0.4.2 (used for Voxtral TTS) hard-pins mlx-lm==0.31.1, but
+# Gemma 4 support requires mlx-lm>=0.31.2.  The 0.31.1→0.31.2 bump only
+# added the gemma4 model files and is otherwise fully backward-compatible,
+# so overriding the pin here is safe.
+override-dependencies = [
+    "mlx-lm>=0.31.2",
+]
+
 [tool.setuptools.packages.find]
 where = ["src"]
 

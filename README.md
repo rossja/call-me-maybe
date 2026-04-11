@@ -143,6 +143,25 @@ tts:
 # FISH_AUDIO_API_KEY=your-key-here
 ```
 
+### Dependency override: mlx-lm and Voxtral (mlx-audio)
+
+`mlx-audio` (used for Voxtral TTS) hard-pins `mlx-lm==0.31.1`, but Gemma 4
+support requires `mlx-lm>=0.31.2`.  The `pyproject.toml` includes a uv
+[dependency override](https://docs.astral.sh/uv/concepts/dependencies/#dependency-overrides)
+to resolve this conflict:
+
+```toml
+[tool.uv]
+override-dependencies = [
+    "mlx-lm>=0.31.2",
+]
+```
+
+This is safe because the `0.31.1→0.31.2` bump only added the `gemma4` model
+files; the API used by `mlx-audio` is unchanged.  If `mlx-audio` releases a
+version that officially supports `mlx-lm>=0.31.2`, this override can be
+removed.
+
 ---
 
 ## Tool integrations
