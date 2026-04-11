@@ -79,8 +79,8 @@ def test_load_defaults_when_no_yaml(monkeypatch: pytest.MonkeyPatch, tmp_path: P
     """Settings should load with defaults when no config.yaml exists."""
     monkeypatch.chdir(tmp_path)  # No config.yaml here
     settings = load_settings(tmp_path / "nonexistent.yaml")
-    assert settings.provider == "remote"  # default
-    assert settings.llm.model == "liquid/lfm-2.5-audio-1.5b"  # default
+    assert settings.provider == "local"  # default
+    assert settings.llm.model == "mlx-community/LFM2.5-Audio-1.5B-bf16"  # default
 
 
 def test_load_minimal_yaml(minimal_yaml: Path) -> None:

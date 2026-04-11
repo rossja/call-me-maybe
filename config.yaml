@@ -9,7 +9,7 @@
 # -----------------------------------------------------------
 # Which backend to use: "local" or "remote"
 # -----------------------------------------------------------
-provider: "remote"   # "local"  ← Apple-Silicon / MLX
+provider: "local"    # "local"  ← Apple-Silicon / MLX (default)
                      # "remote" ← any OpenAI-compatible API
 
 # -----------------------------------------------------------
@@ -17,9 +17,9 @@ provider: "remote"   # "local"  ← Apple-Silicon / MLX
 # -----------------------------------------------------------
 stt:
   # Model name understood by the active provider
-  # local  → mlx-community/whisper-large-v3-mlx  (or any mlx-whisper model)
+  # local  → mlx-community/whisper-large-v3-turbo
   # remote → whisper-1  (OpenAI / OpenRouter)
-  model: "whisper-1"
+  model: "mlx-community/whisper-large-v3-turbo"
 
   # Language hint; null = auto-detect
   language: null
@@ -38,9 +38,9 @@ stt:
 # -----------------------------------------------------------
 llm:
   # Model identifiers
-  # local  → mlx-community/LFM-2.5-Audio-1.5B-4bit  (MLX-quantised)
+  # local  → mlx-community/LFM2.5-Audio-1.5B-bf16
   # remote → liquid/lfm-2.5-audio-1.5b  (via OpenRouter)
-  model: "liquid/lfm-2.5-audio-1.5b"
+  model: "mlx-community/LFM2.5-Audio-1.5B-bf16"
 
   # System prompt shown to the model at the start of every session
   system_prompt: >
@@ -60,9 +60,9 @@ llm:
 # -----------------------------------------------------------
 tts:
   # Model / voice identifier
-  # local  → mlx-community/fish-speech-1.5  (MLX port)
+  # local  → mlx-community/fishaudio-s2-pro-8bit
   # remote → "tts-1" (OpenAI) or fish-audio API
-  model: "tts-1"
+  model: "mlx-community/fishaudio-s2-pro-8bit"
 
   # Voice name / ID
   # For OpenAI TTS: alloy | echo | fable | onyx | nova | shimmer
