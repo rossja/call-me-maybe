@@ -403,11 +403,15 @@ class LocalMLXBackend(ModelBackend):
                 },
             )
 
+        template_kwargs: dict = {"enable_thinking": True}
+        if llm.thinking_budget is not None:
+            template_kwargs["thinking_budget"] = llm.thinking_budget
+
         prompt = self._tokenizer.apply_chat_template(
             raw_messages,
             tokenize=False,
             add_generation_prompt=True,
-            enable_thinking=False,
+            **template_kwargs,
         )
 
         from mlx_lm.sample_utils import make_sampler  # type: ignore[import]

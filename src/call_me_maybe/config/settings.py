@@ -39,21 +39,17 @@ class STTConfig(BaseModel):
 
 
 class LLMConfig(BaseModel):
-    model: str = "mlx-community/Llama-3.2-3B-Instruct-4bit"
-    system_prompt: str = (
-        "You are a helpful voice assistant called 'Maybe'. "
-        "Keep your answers concise and conversational since they will be "
-        "spoken aloud. When you use a tool, briefly tell the user what you "
-        "are doing."
-    )
-    temperature: float = 0.7
+    model: str
+    system_prompt: str
+    temperature: float = 0.5
     max_tokens: int = 512
     context_window_turns: int = 20
+    thinking_budget: int | None = 512
 
 
 class TTSConfig(BaseModel):
-    model: str = "tts-1"
-    voice: str = "nova"
+    model: str
+    voice: str
     speed: float = 1.0
     audio_format: str = "mp3"
 

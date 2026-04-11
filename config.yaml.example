@@ -105,14 +105,9 @@ llm:
   max_tokens: 512
   context_window_turns: 20
 
-    
-
-  # Sampling parameters
-  temperature: 0.5
-  max_tokens: 512
-
-  # Number of conversation turns to keep in the context window (0 = unlimited)
-  context_window_turns: 20
+  # Max tokens the model may spend on internal reasoning before answering.
+  # Set to null for unlimited (not recommended for a voice assistant).
+  thinking_budget: 512
 
 # -----------------------------------------------------------
 # Text-to-Speech (TTS)
