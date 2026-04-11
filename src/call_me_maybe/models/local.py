@@ -25,6 +25,7 @@ import json
 import logging
 import os
 import platform
+import re
 import subprocess
 import tempfile
 import wave
@@ -119,7 +120,190 @@ class LocalMLXBackend(ModelBackend):
             os.environ.setdefault("HF_HOME", cache_dir)
 
         self._model, self._tokenizer = load(model_name, **kwargs)
+        self._ensure_chat_template(model_name)
         logger.info("MLX model loaded: %s", model_name)
+
+    def _ensure_chat_template(self, model_name: str) -> None:
+        """
+        Guarantee the loaded tokenizer has a chat_template set.
+
+        Resolution order (first success wins):
+          1. Explicit override in settings.local.chat_template
+          2. Tokenizer already has one (nothing to do)
+          3. chat_template.jinja in the local HF cache snapshot directory
+          4. chat_template.jinja fetched from HF Hub (exact model name)
+          5. chat_template.jinja fetched from HF Hub (inferred source model,
+             after stripping mlx-community prefix and quantization suffixes)
+          6. tokenizer_config.json["chat_template"] from HF Hub
+             (exact name, then inferred source model)
+        Raises RuntimeError if no template can be found.
+        """
+        # 1. Config override
+        if self._settings.local.chat_template:
+            logger.info(
+                "Using chat_template override from config for model: %s", model_name
+            )
+            self._apply_chat_template_string(self._settings.local.chat_template)
+            return
+
+        # 2. Tokenizer already has one
+        if getattr(self._tokenizer, "has_chat_template", False):
+            return
+
+        logger.warning(
+            "Model '%s' tokenizer is missing a chat_template — attempting auto-resolution.",
+            model_name,
+        )
+
+        candidates = self._template_candidate_names(model_name)
+
+        # 3. Local HF cache: chat_template.jinja
+        template = self._load_local_jinja(model_name)
+        if template:
+            logger.warning(
+                "Loaded chat_template.jinja from local HF cache for '%s'.", model_name
+            )
+            self._apply_chat_template_string(template)
+            return
+
+        # 4 & 5. HF Hub: chat_template.jinja (all candidates)
+        for candidate in candidates:
+            template = self._fetch_hf_jinja(candidate)
+            if template:
+                logger.warning(
+                    "Fetched chat_template.jinja from HF Hub for '%s' (via '%s').",
+                    model_name,
+                    candidate,
+                )
+                self._apply_chat_template_string(template)
+                return
+
+        # 6. HF Hub: tokenizer_config.json["chat_template"] (all candidates)
+        for candidate in candidates:
+            template = self._fetch_hf_tokenizer_config_template(candidate)
+            if template:
+                logger.warning(
+                    "Fetched chat_template from tokenizer_config.json on HF Hub for '%s' (via '%s').",
+                    model_name,
+                    candidate,
+                )
+                self._apply_chat_template_string(template)
+                return
+
+        raise RuntimeError(
+            f"Model '{model_name}' tokenizer has no chat_template and auto-resolution "
+            "failed. Set local.chat_template in config.yaml with a Jinja2 template "
+            "string, or use an instruction-tuned model variant that includes one."
+        )
+
+    def _apply_chat_template_string(self, template: str) -> None:
+        """Patch the chat_template onto the underlying transformers tokenizer."""
+        underlying = getattr(self._tokenizer, "_tokenizer", self._tokenizer)
+        underlying.chat_template = template
+        self._tokenizer.has_chat_template = True
+
+    def _template_candidate_names(self, model_name: str) -> list[str]:
+        """
+        Return a list of model name candidates to try when fetching a template.
+
+        Always includes the exact name first, then attempts to derive the
+        upstream source model by stripping mlx-community org prefix and
+        common quantization/conversion suffixes.
+        """
+        candidates: list[str] = [model_name]
+
+        # Strip mlx-community/ prefix and known suffixes to guess source model
+        name = model_name
+        if "/" in name:
+            org, repo = name.split("/", 1)
+        else:
+            org, repo = "", name
+
+        # Remove trailing quantization / conversion suffixes
+        cleaned = re.sub(
+            r"[-_](4bit|8bit|2bit|3bit|f16|bf16|mlx|MLX|instruct[-_]4bit|instruct[-_]8bit)$",
+            "",
+            repo,
+            flags=re.IGNORECASE,
+        )
+        # Keep stripping until stable (handles e.g. foo-it-4bit -> foo-it -> foo)
+        while True:
+            next_cleaned = re.sub(
+                r"[-_](4bit|8bit|2bit|3bit|f16|bf16|mlx|MLX|instruct[-_]4bit|instruct[-_]8bit)$",
+                "",
+                cleaned,
+                flags=re.IGNORECASE,
+            )
+            if next_cleaned == cleaned:
+                break
+            cleaned = next_cleaned
+
+        if cleaned != repo:
+            # Try the same org with the cleaned name
+            if org:
+                candidates.append(f"{org}/{cleaned}")
+            # Also try common upstream orgs
+            for upstream_org in ("google", "meta-llama", "mistralai", "microsoft"):
+                candidates.append(f"{upstream_org}/{cleaned}")
+
+        return candidates
+
+    def _hf_cache_snapshot_dir(self, model_name: str) -> Path | None:
+        """Return the local HF hub snapshot directory for model_name, if cached."""
+        cache_root = Path(
+            os.environ.get("HF_HOME", Path.home() / ".cache" / "huggingface")
+        ) / "hub"
+        # HF cache uses models--org--repo naming
+        dir_name = "models--" + model_name.replace("/", "--")
+        snapshots_dir = cache_root / dir_name / "snapshots"
+        if not snapshots_dir.is_dir():
+            return None
+        # Pick the newest snapshot
+        snapshots = sorted(snapshots_dir.iterdir(), key=lambda p: p.stat().st_mtime)
+        return snapshots[-1] if snapshots else None
+
+    def _load_local_jinja(self, model_name: str) -> str | None:
+        """Try to read chat_template.jinja from the local HF cache."""
+        snapshot = self._hf_cache_snapshot_dir(model_name)
+        if snapshot is None:
+            return None
+        jinja_path = snapshot / "chat_template.jinja"
+        if jinja_path.is_file():
+            return jinja_path.read_text(encoding="utf-8")
+        return None
+
+    def _fetch_hf_jinja(self, model_name: str) -> str | None:
+        """Try to fetch chat_template.jinja from the HF Hub for model_name."""
+        try:
+            import httpx
+
+            url = f"https://huggingface.co/{model_name}/resolve/main/chat_template.jinja"
+            response = httpx.get(url, follow_redirects=True, timeout=15)
+            if response.status_code == 200:
+                return response.text
+        except Exception:
+            logger.debug(
+                "Failed to fetch chat_template.jinja for '%s'.", model_name, exc_info=True
+            )
+        return None
+
+    def _fetch_hf_tokenizer_config_template(self, model_name: str) -> str | None:
+        """Try to extract chat_template from tokenizer_config.json on the HF Hub."""
+        try:
+            import httpx
+
+            url = f"https://huggingface.co/{model_name}/resolve/main/tokenizer_config.json"
+            response = httpx.get(url, follow_redirects=True, timeout=15)
+            if response.status_code == 200:
+                data = response.json()
+                template = data.get("chat_template")
+                if isinstance(template, str) and template.strip():
+                    return template
+        except Exception:
+            logger.debug(
+                "Failed to fetch tokenizer_config.json for '%s'.", model_name, exc_info=True
+            )
+        return None
 
     def _load_whisper(self) -> Any:
         """Lazily load the Whisper transcription model."""

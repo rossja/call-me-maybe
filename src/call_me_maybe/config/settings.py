@@ -62,6 +62,7 @@ class LocalBackendConfig(BaseModel):
     min_memory_gb: int = 24
     model_cache_dir: str | None = None
     quantization: int = 4
+    chat_template: str | None = None
 
 
 class RemoteBackendConfig(BaseModel):
