@@ -80,6 +80,7 @@ def run(
 def chat(
     message: str = typer.Argument(..., help="Text message to send to the agent."),
     config: Optional[Path] = _config_option,
+    speak: bool = typer.Option(False, "--speak", "-s", help="Speak the reply via TTS."),
 ) -> None:
     """Send a single text message to the agent and print the response."""
     settings = _load(config)
@@ -97,6 +98,8 @@ def chat(
 
     reply = asyncio.run(_run())
     console.print(f"[bold magenta]Maybe:[/bold magenta] {reply}")
+    if speak:
+        asyncio.run(agent._speak(reply))
 
 
 @app.command(name="config")
