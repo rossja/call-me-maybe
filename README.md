@@ -1,5 +1,6 @@
 # call-me-maybe
 ![logo](./logo.png)
+
 A voice-based AI agent that listens to you, takes actions via tools, and talks
 back.  Runs locally on Apple Silicon using **MLX** or calls out to any
 **OpenAI-compatible remote API** (e.g. OpenRouter, OpenAI, LM Studio).
