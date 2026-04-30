@@ -17,6 +17,9 @@ def create_backend(settings: "Settings") -> ModelBackend:
     """
     Instantiate and return the correct :class:`ModelBackend`.
 
+    Supports both single-provider (all STT/LLM/TTS on same backend) and
+    mixed-provider (each component routed independently) configurations.
+
     Parameters
     ----------
     settings:
@@ -25,27 +28,59 @@ def create_backend(settings: "Settings") -> ModelBackend:
     Returns
     -------
     ModelBackend
-        Either a :class:`~call_me_maybe.models.local.LocalMLXBackend`
-        (when ``provider == "local"``) or a
-        :class:`~call_me_maybe.models.remote.RemoteBackend`
-        (when ``provider == "remote"``).
+        Either a single :class:`~call_me_maybe.models.local.LocalMLXBackend`,
+        :class:`~call_me_maybe.models.remote.RemoteBackend`, or a
+        :class:`~call_me_maybe.models.composite.CompositeBackend` if components
+        use different providers.
 
     Raises
     ------
     ValueError
-        If ``provider`` is not ``"local"`` or ``"remote"``.
+        If any component provider is not ``"local"`` or ``"remote"``.
     """
-    provider = settings.provider.lower()
-    logger.info("Creating model backend: provider=%s", provider)
+    from call_me_maybe.models.local import LocalMLXBackend
+    from call_me_maybe.models.remote import RemoteBackend
 
-    if provider == "local":
-        from call_me_maybe.models.local import LocalMLXBackend
+    stt_p = settings.component_provider("stt")
+    llm_p = settings.component_provider("llm")
+    tts_p = settings.component_provider("tts")
+
+    logger.info(
+        "Creating model backend: stt=%s llm=%s tts=%s",
+        stt_p,
+        llm_p,
+        tts_p,
+    )
+
+    # Validate all providers are valid
+    for p in (stt_p, llm_p, tts_p):
+        if p not in ("local", "remote"):
+            raise ValueError(f"Unknown provider {p!r}. Must be 'local' or 'remote'.")
+
+    # All components use same provider: return single backend for efficiency
+    if stt_p == llm_p == tts_p == "local":
         return LocalMLXBackend(settings)
 
-    if provider == "remote":
-        from call_me_maybe.models.remote import RemoteBackend
+    if stt_p == llm_p == tts_p == "remote":
         return RemoteBackend(settings)
 
-    raise ValueError(
-        f"Unknown provider {provider!r}. Must be 'local' or 'remote'."
+    # Mixed providers: build composite backend
+    from call_me_maybe.models.composite import CompositeBackend
+
+    local = LocalMLXBackend(settings) if "local" in (stt_p, llm_p, tts_p) else None
+
+    def _backend(component: str, provider: str) -> ModelBackend:
+        if provider == "local":
+            assert local is not None
+            return local
+        return RemoteBackend(
+            settings,
+            base_url=settings.component_base_url(component),
+            api_key=settings.component_api_key(component),
+        )
+
+    return CompositeBackend(
+        stt=_backend("stt", stt_p),
+        llm=_backend("llm", llm_p),
+        tts=_backend("tts", tts_p),
     )

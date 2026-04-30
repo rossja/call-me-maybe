@@ -31,6 +31,9 @@ logger = logging.getLogger(__name__)
 
 
 class STTConfig(BaseModel):
+    provider: Literal["local", "remote"] | None = None
+    base_url: str | None = None
+    api_key_env: str | None = None
     model: str = "mlx-community/whisper-large-v3-turbo"
     language: str | None = None
     speech_threshold: float = 0.02
@@ -44,6 +47,9 @@ class STTConfig(BaseModel):
 
 
 class LLMConfig(BaseModel):
+    provider: Literal["local", "remote"] | None = None
+    base_url: str | None = None
+    api_key_env: str | None = None
     model: str
     system_prompt: str
     temperature: float = 0.5
@@ -53,6 +59,9 @@ class LLMConfig(BaseModel):
 
 
 class TTSConfig(BaseModel):
+    provider: Literal["local", "remote"] | None = None
+    base_url: str | None = None
+    api_key_env: str | None = None
     model: str
     voice: str
     speed: float = 1.0
@@ -208,22 +217,45 @@ class Settings(BaseSettings):
         """Return the API key to use for remote inference."""
         return self.api_key
 
+    def component_provider(self, component: Literal["stt", "llm", "tts"]) -> str:
+        """Resolved provider for a component (falls back to global provider)."""
+        cfg = {"stt": self.stt, "llm": self.llm, "tts": self.tts}[component]
+        return cfg.provider or self.provider
+
+    def component_base_url(self, component: Literal["stt", "llm", "tts"]) -> str:
+        """Resolved remote base URL for a component (falls back to global remote.base_url)."""
+        cfg = {"stt": self.stt, "llm": self.llm, "tts": self.tts}[component]
+        return cfg.base_url or self.remote.base_url
+
+    def component_api_key(self, component: Literal["stt", "llm", "tts"]) -> str | None:
+        """Resolved API key for a component (component env var takes priority over global)."""
+        cfg = {"stt": self.stt, "llm": self.llm, "tts": self.tts}[component]
+        if cfg.api_key_env:
+            return os.environ.get(cfg.api_key_env)
+        return self.effective_api_key
+
     def validate_provider(self) -> None:
-        """Raise ValueError if the chosen provider is misconfigured."""
-        if self.provider == "remote" and not self.effective_api_key:
-            raise ValueError(
-                "Provider is set to 'remote' but no API key was found. "
-                "Set OPENROUTER_API_KEY, OPENAI_API_KEY, or API_KEY in your "
-                "environment or .env file."
-            )
-        if self.provider == "local":
-            try:
-                import mlx  # noqa: F401
-            except ImportError as exc:
-                raise ImportError(
-                    "Provider is set to 'local' but mlx is not installed. "
-                    "Install it with: uv sync"
-                ) from exc
+        """Raise ValueError if any component provider is misconfigured."""
+        for component in ("stt", "llm", "tts"):
+            provider = self.component_provider(component)
+            if provider == "remote":
+                base_url = self.component_base_url(component)
+                api_key = self.component_api_key(component)
+                is_local_service = base_url and not base_url.startswith("https://")
+                if not is_local_service and not api_key:
+                    raise ValueError(
+                        f"{component.upper()} provider is 'remote' (using {base_url}) "
+                        f"but no API key was found. Set the env var '{component}_api_key_env' "
+                        f"in config, or set OPENROUTER_API_KEY, OPENAI_API_KEY, or API_KEY."
+                    )
+            elif provider == "local":
+                try:
+                    import mlx  # noqa: F401
+                except ImportError as exc:
+                    raise ImportError(
+                        f"{component.upper()} provider is 'local' but mlx is not installed. "
+                        "Install it with: uv sync"
+                    ) from exc
 
 
 # ---------------------------------------------------------------------------

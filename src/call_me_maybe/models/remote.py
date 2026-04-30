@@ -40,20 +40,27 @@ class RemoteBackend(ModelBackend):
     Backend that delegates STT / LLM / TTS to a remote OpenAI-compatible API.
     """
 
-    def __init__(self, settings: "Settings") -> None:
+    def __init__(
+        self,
+        settings: "Settings",
+        *,
+        base_url: str | None = None,
+        api_key: str | None = None,
+    ) -> None:
         self._settings = settings
         remote = settings.remote
-        api_key = settings.effective_api_key or "sk-no-key-set"
+        resolved_url = base_url or remote.base_url
+        resolved_key = api_key or settings.effective_api_key or "sk-no-key-set"
 
         self._client = OpenAI(
-            api_key=api_key,
-            base_url=remote.base_url,
+            api_key=resolved_key,
+            base_url=resolved_url,
             timeout=remote.timeout,
             default_headers=remote.extra_headers,
         )
         logger.info(
             "RemoteBackend ready  base_url=%s  llm=%s  stt=%s  tts=%s",
-            remote.base_url,
+            resolved_url,
             settings.llm.model,
             settings.stt.model,
             settings.tts.model,
