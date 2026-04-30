@@ -403,8 +403,10 @@ class LocalMLXBackend(ModelBackend):
         self._tokenizer: Any = None
         self._whisper_model: Any = None
         self._tts_model: Any = None
-        self._load_llm()
-        self._preload_stt()
+        if settings.component_provider("llm") == "local":
+            self._load_llm()
+        if settings.component_provider("stt") == "local":
+            self._preload_stt()
 
     # ------------------------------------------------------------------
     # Initialisation
