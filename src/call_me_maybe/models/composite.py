@@ -45,7 +45,7 @@ class CompositeBackend(ModelBackend):
         """Delegate to the STT backend."""
         return self._stt.transcribe(audio_bytes, language=language)
 
-    async def chat(
+    def chat(
         self,
         messages: list[ChatMessage],
         *,
@@ -53,8 +53,8 @@ class CompositeBackend(ModelBackend):
         **kwargs: Any,
     ) -> ModelResponse:
         """Delegate to the LLM backend."""
-        return await self._llm.chat(messages, tools=tools, **kwargs)
+        return self._llm.chat(messages, tools=tools, **kwargs)
 
-    async def synthesize(self, text: str) -> bytes:
+    def synthesize(self, text: str) -> bytes:
         """Delegate to the TTS backend."""
-        return await self._tts.synthesize(text)
+        return self._tts.synthesize(text)
