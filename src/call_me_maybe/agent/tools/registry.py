@@ -6,6 +6,7 @@ objects ready for the language model.
 
 from __future__ import annotations
 
+import contextlib
 import importlib
 import json
 import logging
@@ -21,6 +22,52 @@ if TYPE_CHECKING:
     from call_me_maybe.config.settings import Settings
 
 logger = logging.getLogger(__name__)
+
+
+@contextlib.asynccontextmanager
+async def _post_only_client(url: str):
+    """Minimal MCP transport for POST-only servers (no SSE GET stream)."""
+    import anyio  # type: ignore[import]
+    from mcp.shared.message import SessionMessage  # type: ignore[import]
+    from mcp.types import JSONRPCMessage  # type: ignore[import]
+
+    read_stream_writer, read_stream = anyio.create_memory_object_stream(16)
+    write_stream, write_stream_reader = anyio.create_memory_object_stream(16)
+
+    async def _pump() -> None:
+        async with httpx.AsyncClient(timeout=60) as http:
+            async with write_stream_reader:
+                async for session_message in write_stream_reader:
+                    try:
+                        payload = session_message.message.model_dump(
+                            by_alias=True, mode="json", exclude_none=True
+                        )
+                        resp = await http.post(
+                            url,
+                            json=payload,
+                            headers={
+                                "Content-Type": "application/json",
+                                "Accept": "application/json",
+                            },
+                        )
+                        resp.raise_for_status()
+                        if resp.content.strip():
+                            data = resp.json()
+                            items = data if isinstance(data, list) else [data]
+                            for item in items:
+                                msg = JSONRPCMessage.model_validate(item)
+                                await read_stream_writer.send(SessionMessage(msg))
+                    except Exception as exc:
+                        logger.warning("MCP POST-only request failed: %s", exc)
+                        await read_stream_writer.send(exc)
+        await read_stream_writer.aclose()
+
+    async with anyio.create_task_group() as tg:
+        tg.start_soon(_pump)
+        try:
+            yield read_stream, write_stream
+        finally:
+            tg.cancel_scope.cancel()
 
 
 class ToolRegistry:
@@ -140,7 +187,10 @@ class ToolRegistry:
             contexts_before = len(self._mcp_contexts)
             try:
                 if server_cfg.url:
-                    await self._connect_mcp_remote_server(server_cfg, ClientSession)
+                    if getattr(server_cfg, "transport", "streamable-http") == "post":
+                        await self._connect_mcp_post_server(server_cfg, ClientSession)
+                    else:
+                        await self._connect_mcp_remote_server(server_cfg, ClientSession)
                 else:
                     await self._connect_mcp_stdio_server(server_cfg, ClientSession)
             except Exception as exc:
@@ -188,6 +238,17 @@ class ToolRegistry:
         streams = await ctx.__aenter__()
         self._mcp_contexts.append(ctx)
         read, write = streams[0], streams[1]
+        session = ClientSession(read, write)
+        await session.__aenter__()
+        self._mcp_contexts.append(session)
+        await session.initialize()
+        await self._register_mcp_tools(server_cfg, session)
+
+    async def _connect_mcp_post_server(self, server_cfg: Any, ClientSession: Any) -> None:
+        """Connect to a POST-only HTTP MCP server (no SSE GET stream)."""
+        ctx = _post_only_client(server_cfg.url)
+        read, write = await ctx.__aenter__()
+        self._mcp_contexts.append(ctx)
         session = ClientSession(read, write)
         await session.__aenter__()
         self._mcp_contexts.append(session)

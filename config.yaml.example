@@ -227,6 +227,9 @@ agent:
       # servers:
       #   - name: "alphavantage"
       #     url: "https://mcp.alphavantage.co/mcp?apikey=${ALPHAVANTAGE_API_KEY}"
+      #     # transport: "streamable-http" (default) uses POST + SSE GET stream per MCP spec.
+      #     # Use "post" for servers that only support POST/JSON without SSE.
+      #     transport: post
       # Example stdio server (local subprocess):
       # servers:
       #   - name: "filesystem"

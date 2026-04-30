@@ -16,7 +16,7 @@ from __future__ import annotations
 import logging
 import os
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import yaml
 from dotenv import load_dotenv, find_dotenv
@@ -100,6 +100,7 @@ class MCPServerConfig(BaseModel):
     command: list[str] | None = None
     url: str | None = None
     env: dict[str, str] = Field(default_factory=dict)
+    transport: Literal["streamable-http", "post"] = "streamable-http"
 
     @model_validator(mode="after")
     def _check_transport(self) -> "MCPServerConfig":
