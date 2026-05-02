@@ -65,6 +65,10 @@ class ModelResponse:
     finish_reason: str = "stop"
 
 
+class BackendError(Exception):
+    """Raised by a backend when it cannot complete a request."""
+
+
 class ModelBackend(ABC):
     """Abstract interface that every backend must implement."""
 

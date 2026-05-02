@@ -19,9 +19,11 @@ import json
 import logging
 from typing import TYPE_CHECKING
 
+import openai
 from openai import OpenAI
 
 from call_me_maybe.models.base import (
+    BackendError,
     ChatMessage,
     ModelBackend,
     ModelResponse,
@@ -50,7 +52,7 @@ class RemoteBackend(ModelBackend):
         self._settings = settings
         remote = settings.remote
         resolved_url = base_url or remote.base_url
-        resolved_key = api_key or settings.effective_api_key or "sk-no-key-set"
+        resolved_key = api_key or settings.api_key or "sk-no-key-set"
 
         self._client = OpenAI(
             api_key=resolved_key,
@@ -83,7 +85,14 @@ class RemoteBackend(ModelBackend):
         if lang:
             kwargs["language"] = lang
 
-        response = self._client.audio.transcriptions.create(**kwargs)
+        try:
+            response = self._client.audio.transcriptions.create(**kwargs)
+        except openai.APIConnectionError as exc:
+            raise BackendError(f"STT: cannot reach {self._client.base_url} — {exc}") from exc
+        except openai.AuthenticationError as exc:
+            raise BackendError(f"STT: authentication failed — check API_KEY ({exc})") from exc
+        except openai.APIError as exc:
+            raise BackendError(f"STT: API error {exc.status_code} — {exc.message}") from exc
         text = response.text.strip()
         logger.debug("STT result: %r", text)
         return text
@@ -116,7 +125,14 @@ class RemoteBackend(ModelBackend):
             kwargs["tool_choice"] = "auto"
 
         logger.debug("LLM request: model=%s messages=%d", llm.model, len(messages))
-        completion = self._client.chat.completions.create(**kwargs)
+        try:
+            completion = self._client.chat.completions.create(**kwargs)
+        except openai.APIConnectionError as exc:
+            raise BackendError(f"LLM: cannot reach {self._client.base_url} — {exc}") from exc
+        except openai.AuthenticationError as exc:
+            raise BackendError(f"LLM: authentication failed — check API_KEY ({exc})") from exc
+        except openai.APIError as exc:
+            raise BackendError(f"LLM: API error {exc.status_code} — {exc.message}") from exc
 
         choice = completion.choices[0]
         message = choice.message
@@ -154,13 +170,20 @@ class RemoteBackend(ModelBackend):
         tts = self._settings.tts
         logger.debug("TTS request: model=%s voice=%s", tts.model, tts.voice)
 
-        response = self._client.audio.speech.create(
-            model=tts.model,
-            voice=tts.voice,
-            input=text,
-            speed=tts.speed,
-            response_format=tts.audio_format,  # type: ignore[arg-type]
-        )
+        try:
+            response = self._client.audio.speech.create(
+                model=tts.model,
+                voice=tts.voice,
+                input=text,
+                speed=tts.speed,
+                response_format=tts.audio_format,  # type: ignore[arg-type]
+            )
+        except openai.APIConnectionError as exc:
+            raise BackendError(f"TTS: cannot reach {self._client.base_url} — {exc}") from exc
+        except openai.AuthenticationError as exc:
+            raise BackendError(f"TTS: authentication failed — check API_KEY ({exc})") from exc
+        except openai.APIError as exc:
+            raise BackendError(f"TTS: API error {exc.status_code} — {exc.message}") from exc
         audio_bytes = response.read()
         logger.debug("TTS response: %d bytes", len(audio_bytes))
         return audio_bytes
