@@ -76,7 +76,7 @@ class LocalBackendConfig(BaseModel):
 
 
 class RemoteBackendConfig(BaseModel):
-    base_url: str = "https://openrouter.ai/api/v1"
+    base_url: str = ""
     timeout: int = 120
     extra_headers: dict[str, str] = Field(
         default_factory=lambda: {
@@ -189,33 +189,10 @@ class Settings(BaseSettings):
     # ---------------------------------------------------------------------------
     # Secrets – read exclusively from env vars / .env file
     # ---------------------------------------------------------------------------
-    openrouter_api_key: str | None = Field(default=None, alias="OPENROUTER_API_KEY")
-    openai_api_key: str | None = Field(default=None, alias="OPENAI_API_KEY")
     api_key: str | None = Field(default=None, alias="API_KEY")
     fish_audio_api_key: str | None = Field(default=None, alias="FISH_AUDIO_API_KEY")
     fish_audio_voice_id: str | None = Field(default=None, alias="FISH_AUDIO_VOICE_ID")
     log_level: str = Field(default="warning", alias="LOG_LEVEL")
-
-    @model_validator(mode="after")
-    def _resolve_api_key(self) -> "Settings":
-        """
-        Resolve the effective API key for the remote backend.
-
-        Priority (highest first):
-          1. OPENROUTER_API_KEY  (when using OpenRouter)
-          2. OPENAI_API_KEY      (when using api.openai.com)
-          3. API_KEY             (generic fallback)
-        """
-        if self.openrouter_api_key:
-            self.api_key = self.openrouter_api_key
-        elif self.openai_api_key and not self.api_key:
-            self.api_key = self.openai_api_key
-        return self
-
-    @property
-    def effective_api_key(self) -> str | None:
-        """Return the API key to use for remote inference."""
-        return self.api_key
 
     def component_provider(self, component: Literal["stt", "llm", "tts"]) -> str:
         """Resolved provider for a component (falls back to global provider)."""
@@ -232,7 +209,7 @@ class Settings(BaseSettings):
         cfg = {"stt": self.stt, "llm": self.llm, "tts": self.tts}[component]
         if cfg.api_key_env:
             return os.environ.get(cfg.api_key_env)
-        return self.effective_api_key
+        return self.api_key
 
     def validate_provider(self) -> None:
         """Raise ValueError if any component provider is misconfigured."""
@@ -245,8 +222,8 @@ class Settings(BaseSettings):
                 if not is_local_service and not api_key:
                     raise ValueError(
                         f"{component.upper()} provider is 'remote' (using {base_url}) "
-                        f"but no API key was found. Set the env var '{component}_api_key_env' "
-                        f"in config, or set OPENROUTER_API_KEY, OPENAI_API_KEY, or API_KEY."
+                        f"but no API key was found. Set API_KEY in your .env file, "
+                        f"or set api_key_env in the {component} config section."
                     )
             elif provider == "local":
                 try:
