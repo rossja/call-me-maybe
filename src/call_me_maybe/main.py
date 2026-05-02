@@ -30,6 +30,7 @@ from rich.pretty import pprint
 from rich.traceback import install as install_rich_traceback
 
 from call_me_maybe.config import load_settings
+from call_me_maybe.models.base import BackendError
 from call_me_maybe.models.factory import create_backend
 from call_me_maybe.agent.agent import VoiceAgent
 
@@ -115,10 +116,14 @@ def chat(
     async def _run() -> str:
         return await agent.chat_text(message)
 
-    reply = asyncio.run(_run())
-    console.print(f"[bold magenta]Maybe:[/bold magenta] {reply}")
-    if speak:
-        asyncio.run(agent._speak(reply))
+    try:
+        reply = asyncio.run(_run())
+        console.print(f"[bold magenta]Maybe:[/bold magenta] {reply}")
+        if speak:
+            asyncio.run(agent._speak(reply))
+    except BackendError as exc:
+        console.print(f"[bold red]Backend error:[/bold red] {exc}")
+        raise typer.Exit(code=1) from exc
 
 
 @app.command(name="config")
@@ -127,7 +132,7 @@ def show_config(
 ) -> None:
     """Display the resolved configuration (secrets are redacted)."""
     settings = _load(config)
-    data = settings.model_dump(exclude={"openrouter_api_key", "openai_api_key", "api_key", "fish_audio_api_key"})
+    data = settings.model_dump(exclude={"api_key", "fish_audio_api_key"})
     # Replace None with "<not set>" and non-None secrets with "<redacted>"
     pprint(data)
 

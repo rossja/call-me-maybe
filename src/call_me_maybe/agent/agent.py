@@ -25,7 +25,7 @@ from rich.markup import escape
 
 from call_me_maybe.audio.capture import AudioCapture
 from call_me_maybe.audio.playback import AudioPlayback
-from call_me_maybe.models.base import ChatMessage, ModelResponse
+from call_me_maybe.models.base import BackendError, ChatMessage, ModelResponse
 from call_me_maybe.agent.tools.registry import ToolRegistry
 
 if TYPE_CHECKING:
@@ -71,7 +71,11 @@ class VoiceAgent:
         await self._tools.initialise()
 
         try:
-            await self._speak(self._settings.agent.greeting)
+            try:
+                await self._speak(self._settings.agent.greeting)
+            except BackendError as exc:
+                logger.warning("Greeting TTS failed: %s", exc)
+                console.print(f"[yellow]Warning:[/yellow] {exc}")
 
             console.print(
                 "\n[bold green]Voice agent started.[/bold green] "
@@ -109,34 +113,39 @@ class VoiceAgent:
 
     async def _turn(self) -> None:
         """Execute one complete listen → respond cycle."""
-        console.print("[dim]Listening…[/dim]")
-        audio_bytes = await asyncio.get_event_loop().run_in_executor(
-            None, self._capture.record
-        )
+        try:
+            console.print("[dim]Listening…[/dim]")
+            audio_bytes = await asyncio.get_event_loop().run_in_executor(
+                None, self._capture.record
+            )
 
-        if not audio_bytes:
-            return
+            if not audio_bytes:
+                return
 
-        console.print("[dim]Transcribing…[/dim]")
-        user_text = await asyncio.get_event_loop().run_in_executor(
-            None,
-            lambda: self._backend.transcribe(
-                audio_bytes, language=self._settings.stt.language
-            ),
-        )
+            console.print("[dim]Transcribing…[/dim]")
+            user_text = await asyncio.get_event_loop().run_in_executor(
+                None,
+                lambda: self._backend.transcribe(
+                    audio_bytes, language=self._settings.stt.language
+                ),
+            )
 
-        if not user_text.strip():
-            return
+            if not user_text.strip():
+                return
 
-        console.print(f"[bold cyan]You:[/bold cyan] {escape(user_text)}")
-        reply = await self._process_text(user_text)
-        console.print(f"[bold magenta]Maybe:[/bold magenta] {escape(reply)}\n")
-        await self._speak(reply)
-        # Brief pause after TTS playback so speaker echo decays before
-        # the next record() opens the microphone.
-        delay = self._settings.agent.post_tts_delay
-        if delay > 0:
-            await asyncio.sleep(delay)
+            console.print(f"[bold cyan]You:[/bold cyan] {escape(user_text)}")
+            reply = await self._process_text(user_text)
+            console.print(f"[bold magenta]Maybe:[/bold magenta] {escape(reply)}\n")
+            await self._speak(reply)
+            # Brief pause after TTS playback so speaker echo decays before
+            # the next record() opens the microphone.
+            delay = self._settings.agent.post_tts_delay
+            if delay > 0:
+                await asyncio.sleep(delay)
+
+        except BackendError as exc:
+            logger.error("Backend error during turn: %s", exc)
+            console.print(f"[bold red]Backend error:[/bold red] {exc}")
 
     async def _process_text(self, user_text: str) -> str:
         """
