@@ -74,8 +74,8 @@ class AudioPlayback:
             data, sample_rate = _decode_wav(audio_bytes)
             self._play_array(data, sample_rate)
             return
-        except Exception:
-            pass
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("WAV decode failed, falling back to system player: %s", exc)
 
         # Fall back to system player
         self._play_via_system(audio_bytes)

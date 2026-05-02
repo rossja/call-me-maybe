@@ -50,8 +50,8 @@ class LLMConfig(BaseModel):
     provider: Literal["local", "remote"] | None = None
     base_url: str | None = None
     api_key_env: str | None = None
-    model: str
-    system_prompt: str
+    model: str = "mlx-community/Llama-3.2-3B-Instruct-4bit"
+    system_prompt: str = "You are a helpful voice assistant called Maybe."
     temperature: float = 0.5
     max_tokens: int = 512
     context_window_turns: int = 20
@@ -62,8 +62,8 @@ class TTSConfig(BaseModel):
     provider: Literal["local", "remote"] | None = None
     base_url: str | None = None
     api_key_env: str | None = None
-    model: str
-    voice: str
+    model: str = "mlx-community/Voxtral-4B-TTS-2603-mlx-4bit"
+    voice: str = "neutral_male"
     speed: float = 1.0
     audio_format: str = "mp3"
 

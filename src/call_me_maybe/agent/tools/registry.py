@@ -203,8 +203,8 @@ class ToolRegistry:
                 for ctx in reversed(self._mcp_contexts[contexts_before:]):
                     try:
                         await ctx.__aexit__(None, None, None)
-                    except Exception:
-                        logger.debug("Error cleaning up MCP context after failure", exc_info=True)
+                    except Exception as exc:  # noqa: BLE001
+                        logger.debug("Error cleaning up MCP context after failure: %s", exc, exc_info=True)
                 del self._mcp_contexts[contexts_before:]
 
     async def _connect_mcp_stdio_server(self, server_cfg: Any, ClientSession: Any) -> None:

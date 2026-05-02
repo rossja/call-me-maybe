@@ -77,12 +77,14 @@ def _check_memory(min_gb: int) -> None:
             )
         else:
             logger.debug("System RAM %.1f GiB meets the %d GiB requirement.", total_gb, min_gb)
-    except Exception:
-        logger.debug("Could not determine system RAM.", exc_info=True)
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("Could not determine system RAM: %s", exc, exc_info=True)
 
 
 _THINKING_RE = re.compile(
-    r"<\|channel>.*?(?:<channel\|>|$)|<channel\|>|<\|channel>", re.DOTALL
+    r"<\|channel>.*?(?:<channel\|>|$)|<channel\|>|<\|channel>"
+    r"|<think>.*?(?:</think>|$)|</think>",
+    re.DOTALL,
 )
 
 
@@ -610,9 +612,9 @@ class LocalMLXBackend(ModelBackend):
             response = httpx.get(url, follow_redirects=True, timeout=15)
             if response.status_code == 200:
                 return response.text
-        except Exception:
+        except Exception as exc:  # noqa: BLE001
             logger.debug(
-                "Failed to fetch chat_template.jinja for '%s'.", model_name, exc_info=True
+                "Failed to fetch chat_template.jinja for '%s': %s", model_name, exc, exc_info=True
             )
         return None
 
@@ -628,9 +630,9 @@ class LocalMLXBackend(ModelBackend):
                 template = data.get("chat_template")
                 if isinstance(template, str) and template.strip():
                     return template
-        except Exception:
+        except Exception as exc:  # noqa: BLE001
             logger.debug(
-                "Failed to fetch tokenizer_config.json for '%s'.", model_name, exc_info=True
+                "Failed to fetch tokenizer_config.json for '%s': %s", model_name, exc, exc_info=True
             )
         return None
 
